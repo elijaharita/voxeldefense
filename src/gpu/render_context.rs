@@ -1,4 +1,6 @@
-use super::{gpu_manager::GpuManager, swapchain_manager::SwapchainManager};
+use super::{
+    gpu_manager::GpuManager, pipeline_manager::PipelineManager, swapchain_manager::SwapchainManager,
+};
 use ash::{
     extensions,
     version::{DeviceV1_0, EntryV1_0, InstanceV1_0},
@@ -19,14 +21,16 @@ pub struct ViewInfo {
 pub struct RenderContext {
     gpu_manager: GpuManager,
     swapchain_manager: SwapchainManager,
-
-    // Descriptor layouts
-    frame_descriptor_set_layout: vk::DescriptorSetLayout,
-    camera_descriptor_set_layout: vk::DescriptorSetLayout,
+    pipeline_manager: PipelineManager,
 
     // Memory
     device_memory: vk::DeviceMemory,
     view_buffer: vk::Buffer,
+
+    // Synchronization
+    image_available_semaphores: Vec<vk::Semaphore>,
+    compute_done_semaphores: Vec<vk::Semaphore>,
+    frame_fences: Vec<vk::Fence>,
 
     // Descriptors
     descriptor_pool: vk::DescriptorPool,
@@ -36,16 +40,6 @@ pub struct RenderContext {
     // Command pools
     command_pool: vk::CommandPool,
     command_buffers: Vec<vk::CommandBuffer>,
-
-    // Pipeline
-    compute_shader_module: vk::ShaderModule,
-    compute_pipeline_layout: vk::PipelineLayout,
-    compute_pipeline: vk::Pipeline,
-
-    // Synchronization
-    image_available_semaphores: Vec<vk::Semaphore>,
-    compute_done_semaphores: Vec<vk::Semaphore>,
-    frame_fences: Vec<vk::Fence>,
 
     // Queue
     queue: vk::Queue,
@@ -57,65 +51,16 @@ pub struct RenderContext {
 impl RenderContext {
     pub fn new(window: &Window) -> Self {
         let gpu_manager = GpuManager::new(&window.raw_window_handle());
-        let swapchain_manager = SwapchainManager::new(&gpu_manager, na::Vector2::new(window.inner_size().width, window.inner_size().height));
+        let swapchain_manager = SwapchainManager::new(
+            &gpu_manager,
+            na::Vector2::new(window.inner_size().width, window.inner_size().height),
+        );
+        let pipeline_manager = PipelineManager::new(&gpu_manager);
 
         let instance = gpu_manager.instance();
         let physical_device = gpu_manager.physical_device();
         let device = gpu_manager.device();
         let queue_family_index = gpu_manager.queue_family_index();
-
-        // Create descriptor set layouts
-        let frame_descriptor_set_layout = unsafe {
-            device
-                .create_descriptor_set_layout(
-                    &vk::DescriptorSetLayoutCreateInfo::builder().bindings(&[
-                        vk::DescriptorSetLayoutBinding::builder()
-                            .binding(0)
-                            .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
-                            .descriptor_count(1)
-                            .stage_flags(vk::ShaderStageFlags::COMPUTE)
-                            .build(),
-                    ]),
-                    None,
-                )
-                .unwrap()
-        };
-
-        let camera_descriptor_set_layout = unsafe {
-            device
-                .create_descriptor_set_layout(
-                    &vk::DescriptorSetLayoutCreateInfo::builder().bindings(&[
-                        vk::DescriptorSetLayoutBinding::builder()
-                            .binding(0)
-                            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                            .descriptor_count(1)
-                            .stage_flags(vk::ShaderStageFlags::COMPUTE)
-                            .build(),
-                    ]),
-                    None,
-                )
-                .unwrap()
-        };
-
-        let compute_shader_module = unsafe {
-            use std::fs::File;
-            use std::io::Read;
-
-            let mut file = File::open("res/shaders/main.comp.spv").expect("Could not open SPIR-V");
-            let mut buffer = Vec::new();
-            file.read_to_end(&mut buffer)
-                .expect("Could not read SPIR-V");
-
-            device
-                .create_shader_module(
-                    &vk::ShaderModuleCreateInfo::builder().code(std::slice::from_raw_parts(
-                        buffer.as_ptr() as *const u32,
-                        buffer.len() / 4,
-                    )),
-                    None,
-                )
-                .unwrap()
-        };
 
         // Create memory objects
         let view_buffer = unsafe {
@@ -185,37 +130,6 @@ impl RenderContext {
             device.unmap_memory(device_memory);
         }
 
-        // Create pipeline layout
-        let compute_pipeline_layout = unsafe {
-            device
-                .create_pipeline_layout(
-                    &vk::PipelineLayoutCreateInfo::builder()
-                        .set_layouts(&[frame_descriptor_set_layout, camera_descriptor_set_layout]),
-                    None,
-                )
-                .unwrap()
-        };
-
-        // Create compute pipeline
-        let compute_pipeline = unsafe {
-            device
-                .create_compute_pipelines(
-                    vk::PipelineCache::null(),
-                    &[vk::ComputePipelineCreateInfo::builder()
-                        .stage(
-                            vk::PipelineShaderStageCreateInfo::builder()
-                                .name(cstr!("main"))
-                                .stage(vk::ShaderStageFlags::COMPUTE)
-                                .module(compute_shader_module)
-                                .build(),
-                        )
-                        .layout(compute_pipeline_layout)
-                        .build()],
-                    None,
-                )
-                .unwrap()[0]
-        };
-
         // Create descriptor pool
         let descriptor_pool = unsafe {
             device
@@ -244,7 +158,7 @@ impl RenderContext {
                     &vk::DescriptorSetAllocateInfo::builder()
                         .descriptor_pool(descriptor_pool)
                         .set_layouts(&vec![
-                            frame_descriptor_set_layout;
+                            pipeline_manager.frame_descriptor_set_layout();
                             swapchain_manager.image_views().len()
                         ]),
                 )
@@ -256,7 +170,7 @@ impl RenderContext {
                 .allocate_descriptor_sets(
                     &vk::DescriptorSetAllocateInfo::builder()
                         .descriptor_pool(descriptor_pool)
-                        .set_layouts(&vec![camera_descriptor_set_layout; 1]),
+                        .set_layouts(&vec![pipeline_manager.camera_descriptor_set_layout(); 1]),
                 )
                 .unwrap()[0]
         };
@@ -326,14 +240,14 @@ impl RenderContext {
 
                 device.cmd_bind_pipeline(
                     command_buffer,
-                    vk::PipelineBindPoint::COMPUTE,
-                    compute_pipeline,
+                    pipeline_manager.bind_point(),
+                    pipeline_manager.pipeline(),
                 );
 
                 device.cmd_bind_descriptor_sets(
                     command_buffer,
-                    vk::PipelineBindPoint::COMPUTE,
-                    compute_pipeline_layout,
+                    pipeline_manager.bind_point(),
+                    pipeline_manager.layout(),
                     0,
                     &[frame_descriptor_sets[i], camera_descriptor_set],
                     &[],
@@ -418,8 +332,7 @@ impl RenderContext {
         Self {
             gpu_manager,
             swapchain_manager,
-            frame_descriptor_set_layout,
-            camera_descriptor_set_layout,
+            pipeline_manager,
             device_memory,
             view_buffer,
             descriptor_pool,
@@ -427,9 +340,6 @@ impl RenderContext {
             camera_descriptor_set,
             command_pool,
             command_buffers,
-            compute_shader_module,
-            compute_pipeline_layout,
-            compute_pipeline,
             image_available_semaphores,
             compute_done_semaphores,
             frame_fences,
