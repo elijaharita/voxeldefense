@@ -13,9 +13,27 @@ use winit::window::Window;
 
 const MAX_FRAMES: usize = 2;
 
-pub struct ViewInfo {
-    screen_size: na::Vector2<f32>,
-    position: na::Vector3<f32>,
+#[derive(Clone, Copy)]
+pub struct Camera {
+    pub position: na::Point3<f32>,
+    _p4: f32,
+    pub rotation: na::Matrix4<f32>,
+    pub screen_size: na::Point2<f32>,
+}
+
+impl Camera {
+    pub fn new(
+        position: na::Point3<f32>,
+        rotation: na::Matrix4<f32>,
+        screen_size: na::Point2<f32>,
+    ) -> Self {
+        Self {
+            position,
+            _p4: 0.0,
+            rotation,
+            screen_size,
+        }
+    }
 }
 
 pub struct RenderContext {
@@ -26,6 +44,8 @@ pub struct RenderContext {
     // Memory
     device_memory: vk::DeviceMemory,
     view_buffer: vk::Buffer,
+    view_buffer_offset: u64,
+    view_buffer_size: u64,
 
     // Descriptors
     descriptor_pool: vk::DescriptorPool,
@@ -67,7 +87,7 @@ impl RenderContext {
             device
                 .create_buffer(
                     &vk::BufferCreateInfo::builder()
-                        .size(size_of::<ViewInfo>() as u64)
+                        .size(size_of::<Camera>() as u64)
                         .usage(vk::BufferUsageFlags::UNIFORM_BUFFER)
                         .sharing_mode(vk::SharingMode::EXCLUSIVE)
                         .queue_family_indices(&[queue_family_index]),
@@ -111,23 +131,6 @@ impl RenderContext {
             device
                 .bind_buffer_memory(view_buffer, device_memory, 0)
                 .unwrap();
-
-            let memory = device
-                .map_memory(
-                    device_memory,
-                    0,
-                    view_buffer_memory_requirements.size,
-                    vk::MemoryMapFlags::empty(),
-                )
-                .unwrap();
-            *(memory as *mut ViewInfo) = ViewInfo {
-                screen_size: na::Vector2::new(
-                    window.inner_size().width as f32,
-                    window.inner_size().height as f32,
-                ),
-                position: na::Vector3::new(0.0, 0.0, 0.0),
-            };
-            device.unmap_memory(device_memory);
         }
 
         // Create descriptor pool
@@ -333,17 +336,25 @@ impl RenderContext {
             gpu_manager,
             swapchain_manager,
             pipeline_manager,
+
             device_memory,
             view_buffer,
+            view_buffer_offset: 0,
+            view_buffer_size: view_buffer_memory_requirements.size,
+
             descriptor_pool,
             frame_descriptor_sets,
             camera_descriptor_set,
+
             command_pool,
             command_buffers,
+
             image_available_semaphores,
             compute_done_semaphores,
             frame_fences,
+
             queue,
+
             frame: 0,
         }
     }
@@ -402,6 +413,23 @@ impl RenderContext {
                 self.frame += 1;
                 self.frame %= MAX_FRAMES;
             }
+        }
+    }
+
+    pub fn update_camera(&self, camera: &Camera) {
+        let device = self.gpu_manager.device();
+
+        unsafe {
+            let memory = device
+                .map_memory(
+                    self.device_memory,
+                    self.view_buffer_offset,
+                    self.view_buffer_size,
+                    vk::MemoryMapFlags::empty(),
+                )
+                .unwrap();
+            *(memory as *mut Camera) = *camera;
+            device.unmap_memory(self.device_memory);
         }
     }
 }

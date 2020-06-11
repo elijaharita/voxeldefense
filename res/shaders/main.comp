@@ -5,8 +5,10 @@ layout (set = 0, binding = 1) uniform ScreenSize {
     vec2 screenSize;
 };
 layout (set = 1, binding = 0) uniform Camera {
-    vec2 screenSize;
     vec3 position;
+    float _p4;
+    mat4 rotation;
+    vec2 screenSize;
 } camera;
 
 struct Ray {
@@ -42,9 +44,12 @@ RaycastResult raycast(Ray ray) {
     float discr = b * b - 4 * a * c;
 
     if (discr > 0) {
-        result.hit = true;
         result.t = (-b - sqrt(discr)) / (2.0 * a);
-        result.color = vec4(0, 0, 1 - log(result.t), 1);
+
+        if (result.t > 0.0) {
+            result.hit = true;
+            result.color = vec4(normalize((ray.o + ray.d * result.t) - sphere.c), 1);
+        }
     }
 
     return result;
@@ -52,8 +57,8 @@ RaycastResult raycast(Ray ray) {
 
 Ray genRay(vec2 screenPos) {
     return Ray(
-        camera.position,
-        normalize(vec3(screenPos.xy, -1))
+        camera.position.xyz,
+        mat3(camera.rotation) * normalize(vec3(screenPos.x, -screenPos.y, -1))
     );
 }
 
@@ -71,7 +76,7 @@ void main() {
     if (result.hit) {
         imageStore(writeImage, ivec2(gl_GlobalInvocationID.xy), result.color);
     } else {
-        imageStore(writeImage, ivec2(gl_GlobalInvocationID.xy), vec4(screenPos, 0, 1));
+        imageStore(writeImage, ivec2(gl_GlobalInvocationID.xy), vec4(0.2, 0.2, 0.2, 1));
     }
     
 }
