@@ -29,3 +29,6 @@ Create a simple, limited interactable voxel world
   - takes a physical device
   - contain the pipeline and scene rendering information
   - expose functions for the render instance responsibilities
+
+## Current TODO
+1. Create and allow setting of viewport information

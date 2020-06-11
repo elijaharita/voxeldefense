@@ -1,6 +1,10 @@
 #version 450
 
 layout (set = 0, binding = 0) uniform writeonly image2D writeImage;
+layout (set = 1, binding = 0) uniform ViewInfo {
+    uint width, height;
+} viewInfo;
+
 void main() {
-    imageStore(writeImage, ivec2(gl_GlobalInvocationID.xy), vec4(gl_GlobalInvocationID.xyy / 100.0, 1));
+    imageStore(writeImage, ivec2(gl_GlobalInvocationID.xy), vec4(gl_GlobalInvocationID.xy / vec2(viewInfo.width, viewInfo.height), 0, 1));
 }

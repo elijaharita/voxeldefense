@@ -10,11 +10,14 @@ use ash::{
     vk,
 };
 use raw_window_handle::HasRawWindowHandle;
+use std::{
+    mem::size_of,
+    time::{Duration, Instant},
+};
 use winit::{
     event_loop::EventLoop,
     window::{Window, WindowBuilder},
 };
-use std::time::{Duration, Instant};
 
 const MAX_FRAMES: usize = 2;
 
@@ -81,14 +84,32 @@ fn main() {
     });
 }
 
+struct ViewInfo {
+    width: u32,
+    height: u32,
+}
+
 struct RenderContext {
+    // Entry
     entry: ash::Entry,
+
+    // Instance
     instance: ash::Instance,
+
+    // Surface
     surface: vk::SurfaceKHR,
     surface_util: extensions::khr::Surface,
+
+    // Physical device
     physical_device: vk::PhysicalDevice,
+
+    // Queue family index
     queue_family_index: u32,
+
+    // Device
     device: ash::Device,
+
+    // Swapchain
     swapchain_capabilities: vk::SurfaceCapabilitiesKHR,
     swapchain_present_mode: vk::PresentModeKHR,
     swapchain_extent: vk::Extent2D,
@@ -97,18 +118,38 @@ struct RenderContext {
     swapchain_images: Vec<vk::Image>,
     swapchain_subresource_range: vk::ImageSubresourceRange,
     swapchain_image_views: Vec<vk::ImageView>,
-    compute_shader_module: vk::ShaderModule,
+
+    // Descriptor layouts
     frame_descriptor_set_layout: vk::DescriptorSetLayout,
+    view_descriptor_set_layout: vk::DescriptorSetLayout,
+
+    // Memory
+    device_memory: vk::DeviceMemory,
+    view_buffer: vk::Buffer,
+
+    // Descriptors
     descriptor_pool: vk::DescriptorPool,
     frame_descriptor_sets: Vec<vk::DescriptorSet>,
+    view_descriptor_set: vk::DescriptorSet,
+
+    // Command pools
     command_pool: vk::CommandPool,
     command_buffers: Vec<vk::CommandBuffer>,
+
+    // Pipeline
+    compute_shader_module: vk::ShaderModule,
     compute_pipeline_layout: vk::PipelineLayout,
     compute_pipeline: vk::Pipeline,
+
+    // Synchronization
     image_available_semaphores: Vec<vk::Semaphore>,
     compute_done_semaphores: Vec<vk::Semaphore>,
     frame_fences: Vec<vk::Fence>,
+
+    // Queue
     queue: vk::Queue,
+
+    // Frame index
     frame: usize,
 }
 
@@ -338,6 +379,39 @@ impl RenderContext {
             })
             .collect();
 
+        // Create descriptor set layouts
+        let frame_descriptor_set_layout = unsafe {
+            device
+                .create_descriptor_set_layout(
+                    &vk::DescriptorSetLayoutCreateInfo::builder().bindings(&[
+                        vk::DescriptorSetLayoutBinding::builder()
+                            .binding(0)
+                            .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
+                            .descriptor_count(1)
+                            .stage_flags(vk::ShaderStageFlags::COMPUTE)
+                            .build(),
+                    ]),
+                    None,
+                )
+                .unwrap()
+        };
+
+        let view_descriptor_set_layout = unsafe {
+            device
+                .create_descriptor_set_layout(
+                    &vk::DescriptorSetLayoutCreateInfo::builder().bindings(&[
+                        vk::DescriptorSetLayoutBinding::builder()
+                            .binding(0)
+                            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                            .descriptor_count(1)
+                            .stage_flags(vk::ShaderStageFlags::COMPUTE)
+                            .build(),
+                    ]),
+                    None,
+                )
+                .unwrap()
+        };
+
         let compute_shader_module = unsafe {
             use std::fs::File;
             use std::io::Read;
@@ -358,105 +432,70 @@ impl RenderContext {
                 .unwrap()
         };
 
-        // Create descriptor set layouts
-        let frame_descriptor_set_layout = unsafe {
+        // Create memory objects
+        let view_buffer = unsafe {
             device
-                .create_descriptor_set_layout(
-                    &vk::DescriptorSetLayoutCreateInfo::builder().bindings(&[
-                        vk::DescriptorSetLayoutBinding::builder()
-                            .binding(0)
-                            .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
-                            .descriptor_count(1)
-                            .stage_flags(vk::ShaderStageFlags::COMPUTE)
-                            .build(),
-                    ]),
+                .create_buffer(
+                    &vk::BufferCreateInfo::builder()
+                        .size(size_of::<ViewInfo>() as u64)
+                        .usage(vk::BufferUsageFlags::UNIFORM_BUFFER)
+                        .sharing_mode(vk::SharingMode::EXCLUSIVE)
+                        .queue_family_indices(&[queue_family_index]),
                     None,
                 )
                 .unwrap()
         };
 
-        // Create descriptor pool
-        let descriptor_pool = unsafe {
+        // Find memory requirements
+        let view_buffer_memory_requirements =
+            unsafe { device.get_buffer_memory_requirements(view_buffer) };
+
+        // Create device memory
+        let device_memory = unsafe {
             device
-                .create_descriptor_pool(
-                    &vk::DescriptorPoolCreateInfo::builder()
-                        .max_sets((swapchain_image_views.len() + 1) as u32)
-                        .pool_sizes(&[
-                            vk::DescriptorPoolSize::builder()
-                                .ty(vk::DescriptorType::STORAGE_IMAGE)
-                                .descriptor_count(1)
-                                .build(),
-                            vk::DescriptorPoolSize::builder()
-                                .ty(vk::DescriptorType::UNIFORM_BUFFER)
-                                .descriptor_count(1)
-                                .build(),
-                        ]),
+                .allocate_memory(
+                    &vk::MemoryAllocateInfo::builder()
+                        .allocation_size(view_buffer_memory_requirements.size)
+                        .memory_type_index(
+                            instance
+                                .get_physical_device_memory_properties(physical_device)
+                                .memory_types
+                                .iter()
+                                .enumerate()
+                                .find(|&(i, memory_type)| {
+                                    memory_type.property_flags.contains(
+                                        vk::MemoryPropertyFlags::HOST_VISIBLE
+                                            | vk::MemoryPropertyFlags::HOST_COHERENT,
+                                    )
+                                })
+                                .expect("Could not find a suitable memory type")
+                                .0 as u32,
+                        ),
                     None,
                 )
                 .unwrap()
         };
 
-        let frame_descriptor_sets = unsafe {
-            device
-                .allocate_descriptor_sets(
-                    &vk::DescriptorSetAllocateInfo::builder()
-                        .descriptor_pool(descriptor_pool)
-                        .set_layouts(&vec![
-                            frame_descriptor_set_layout;
-                            swapchain_image_views.len()
-                        ]),
-                )
-                .unwrap()
-        };
-
-        // Update descriptor sets
+        // Bind the buffers to the memory and update
         unsafe {
-            // Set images
-            for (i, &imgv) in swapchain_image_views.iter().enumerate() {
-                device.update_descriptor_sets(
-                    &[vk::WriteDescriptorSet::builder()
-                        .dst_set(frame_descriptor_sets[i])
-                        .dst_binding(0)
-                        .dst_array_element(0)
-                        .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
-                        .image_info(&[vk::DescriptorImageInfo::builder()
-                            .image_view(imgv)
-                            .image_layout(vk::ImageLayout::GENERAL)
-                            .build()])
-                        .build()],
-                    &[],
-                );
-            }
+            device
+                .bind_buffer_memory(view_buffer, device_memory, 0)
+                .unwrap();
+                
+            let memory = device.map_memory(device_memory, 0, view_buffer_memory_requirements.size, vk::MemoryMapFlags::empty()).unwrap();
+            *(memory as *mut ViewInfo) = ViewInfo {
+                width: window.inner_size().width,
+                height: window.inner_size().height
+            };
+            device.unmap_memory(device_memory);
         }
-
-        // Create command pool
-        let command_pool = unsafe {
-            device
-                .create_command_pool(
-                    &vk::CommandPoolCreateInfo::builder().queue_family_index(queue_family_index),
-                    None,
-                )
-                .unwrap()
-        };
-
-        // Allocate command buffers
-        let command_buffers = unsafe {
-            device
-                .allocate_command_buffers(
-                    &vk::CommandBufferAllocateInfo::builder()
-                        .command_pool(command_pool)
-                        .level(vk::CommandBufferLevel::PRIMARY)
-                        .command_buffer_count(swapchain_image_views.len() as u32),
-                )
-                .unwrap()
-        };
 
         // Create pipeline layout
         let compute_pipeline_layout = unsafe {
             device
                 .create_pipeline_layout(
                     &vk::PipelineLayoutCreateInfo::builder()
-                        .set_layouts(&[frame_descriptor_set_layout]),
+                        .set_layouts(&[frame_descriptor_set_layout, view_descriptor_set_layout]),
                     None,
                 )
                 .unwrap()
@@ -482,6 +521,108 @@ impl RenderContext {
                 .unwrap()[0]
         };
 
+        // Create descriptor pool
+        let descriptor_pool = unsafe {
+            device
+                .create_descriptor_pool(
+                    &vk::DescriptorPoolCreateInfo::builder()
+                        .max_sets((swapchain_image_views.len() + 1) as u32)
+                        .pool_sizes(&[
+                            vk::DescriptorPoolSize::builder()
+                                .ty(vk::DescriptorType::STORAGE_IMAGE)
+                                .descriptor_count(1)
+                                .build(),
+                            vk::DescriptorPoolSize::builder()
+                                .ty(vk::DescriptorType::UNIFORM_BUFFER)
+                                .descriptor_count(1)
+                                .build(),
+                        ]),
+                    None,
+                )
+                .unwrap()
+        };
+
+        // Create descriptor sets
+        let frame_descriptor_sets = unsafe {
+            device
+                .allocate_descriptor_sets(
+                    &vk::DescriptorSetAllocateInfo::builder()
+                        .descriptor_pool(descriptor_pool)
+                        .set_layouts(&vec![
+                            frame_descriptor_set_layout;
+                            swapchain_image_views.len()
+                        ]),
+                )
+                .unwrap()
+        };
+
+        let view_descriptor_set = unsafe {
+            device
+                .allocate_descriptor_sets(
+                    &vk::DescriptorSetAllocateInfo::builder()
+                        .descriptor_pool(descriptor_pool)
+                        .set_layouts(&vec![view_descriptor_set_layout; 1]),
+                )
+                .unwrap()[0]
+        };
+
+        // Update descriptor sets
+        unsafe {
+            // Swapchain image views
+            for (i, &descriptor_set) in frame_descriptor_sets.iter().enumerate() {
+                device.update_descriptor_sets(
+                    &[vk::WriteDescriptorSet::builder()
+                        .dst_set(descriptor_set)
+                        .dst_binding(0)
+                        .dst_array_element(0)
+                        .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
+                        .image_info(&[vk::DescriptorImageInfo::builder()
+                            .image_view(swapchain_image_views[i])
+                            .image_layout(vk::ImageLayout::GENERAL)
+                            .build()])
+                        .build()],
+                    &[],
+                );
+            }
+
+            device.update_descriptor_sets(
+                &[vk::WriteDescriptorSet::builder()
+                    .dst_set(view_descriptor_set)
+                    .dst_binding(0)
+                    .dst_array_element(0)
+                    .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                    .buffer_info(&[vk::DescriptorBufferInfo::builder()
+                        .buffer(view_buffer)
+                        .offset(0)
+                        .range(vk::WHOLE_SIZE)
+                        .build()])
+                    .build()],
+                &[],
+            )
+        }
+
+        // Create command pool
+        let command_pool = unsafe {
+            device
+                .create_command_pool(
+                    &vk::CommandPoolCreateInfo::builder().queue_family_index(queue_family_index),
+                    None,
+                )
+                .unwrap()
+        };
+
+        // Allocate command buffers
+        let command_buffers = unsafe {
+            device
+                .allocate_command_buffers(
+                    &vk::CommandBufferAllocateInfo::builder()
+                        .command_pool(command_pool)
+                        .level(vk::CommandBufferLevel::PRIMARY)
+                        .command_buffer_count(swapchain_image_views.len() as u32),
+                )
+                .unwrap()
+        };
+
         // Record command buffers
         for (i, &command_buffer) in command_buffers.iter().enumerate() {
             unsafe {
@@ -499,7 +640,7 @@ impl RenderContext {
                     vk::PipelineBindPoint::COMPUTE,
                     compute_pipeline_layout,
                     0,
-                    &[frame_descriptor_sets[i]],
+                    &[frame_descriptor_sets[i], view_descriptor_set],
                     &[],
                 );
 
@@ -595,12 +736,16 @@ impl RenderContext {
             swapchain_images,
             swapchain_subresource_range,
             swapchain_image_views,
-            compute_shader_module,
             frame_descriptor_set_layout,
+            view_descriptor_set_layout,
+            device_memory,
+            view_buffer,
             descriptor_pool,
             frame_descriptor_sets,
+            view_descriptor_set,
             command_pool,
             command_buffers,
+            compute_shader_module,
             compute_pipeline_layout,
             compute_pipeline,
             image_available_semaphores,
