@@ -1,6 +1,7 @@
 extern crate ash;
 extern crate raw_window_handle;
 extern crate winit;
+extern crate nalgebra;
 #[macro_use]
 extern crate cstr;
 
@@ -18,6 +19,7 @@ use winit::{
     event_loop::EventLoop,
     window::{Window, WindowBuilder},
 };
+use nalgebra as na;
 
 const MAX_FRAMES: usize = 2;
 
@@ -85,8 +87,8 @@ fn main() {
 }
 
 struct ViewInfo {
-    width: u32,
-    height: u32,
+    screen_size: na::Vector2<f32>,
+    position: na::Vector3<f32>
 }
 
 struct RenderContext {
@@ -121,7 +123,7 @@ struct RenderContext {
 
     // Descriptor layouts
     frame_descriptor_set_layout: vk::DescriptorSetLayout,
-    view_descriptor_set_layout: vk::DescriptorSetLayout,
+    camera_descriptor_set_layout: vk::DescriptorSetLayout,
 
     // Memory
     device_memory: vk::DeviceMemory,
@@ -130,7 +132,7 @@ struct RenderContext {
     // Descriptors
     descriptor_pool: vk::DescriptorPool,
     frame_descriptor_sets: Vec<vk::DescriptorSet>,
-    view_descriptor_set: vk::DescriptorSet,
+    camera_descriptor_set: vk::DescriptorSet,
 
     // Command pools
     command_pool: vk::CommandPool,
@@ -396,7 +398,7 @@ impl RenderContext {
                 .unwrap()
         };
 
-        let view_descriptor_set_layout = unsafe {
+        let camera_descriptor_set_layout = unsafe {
             device
                 .create_descriptor_set_layout(
                     &vk::DescriptorSetLayoutCreateInfo::builder().bindings(&[
@@ -484,8 +486,8 @@ impl RenderContext {
                 
             let memory = device.map_memory(device_memory, 0, view_buffer_memory_requirements.size, vk::MemoryMapFlags::empty()).unwrap();
             *(memory as *mut ViewInfo) = ViewInfo {
-                width: window.inner_size().width,
-                height: window.inner_size().height
+                screen_size: na::Vector2::new(window.inner_size().width as f32, window.inner_size().height as f32),
+                position: na::Vector3::new(0.0, 0.0, 0.0)
             };
             device.unmap_memory(device_memory);
         }
@@ -495,7 +497,7 @@ impl RenderContext {
             device
                 .create_pipeline_layout(
                     &vk::PipelineLayoutCreateInfo::builder()
-                        .set_layouts(&[frame_descriptor_set_layout, view_descriptor_set_layout]),
+                        .set_layouts(&[frame_descriptor_set_layout, camera_descriptor_set_layout]),
                     None,
                 )
                 .unwrap()
@@ -556,12 +558,12 @@ impl RenderContext {
                 .unwrap()
         };
 
-        let view_descriptor_set = unsafe {
+        let camera_descriptor_set = unsafe {
             device
                 .allocate_descriptor_sets(
                     &vk::DescriptorSetAllocateInfo::builder()
                         .descriptor_pool(descriptor_pool)
-                        .set_layouts(&vec![view_descriptor_set_layout; 1]),
+                        .set_layouts(&vec![camera_descriptor_set_layout; 1]),
                 )
                 .unwrap()[0]
         };
@@ -587,7 +589,7 @@ impl RenderContext {
 
             device.update_descriptor_sets(
                 &[vk::WriteDescriptorSet::builder()
-                    .dst_set(view_descriptor_set)
+                    .dst_set(camera_descriptor_set)
                     .dst_binding(0)
                     .dst_array_element(0)
                     .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
@@ -640,7 +642,7 @@ impl RenderContext {
                     vk::PipelineBindPoint::COMPUTE,
                     compute_pipeline_layout,
                     0,
-                    &[frame_descriptor_sets[i], view_descriptor_set],
+                    &[frame_descriptor_sets[i], camera_descriptor_set],
                     &[],
                 );
 
@@ -737,12 +739,12 @@ impl RenderContext {
             swapchain_subresource_range,
             swapchain_image_views,
             frame_descriptor_set_layout,
-            view_descriptor_set_layout,
+            camera_descriptor_set_layout,
             device_memory,
             view_buffer,
             descriptor_pool,
             frame_descriptor_sets,
-            view_descriptor_set,
+            camera_descriptor_set,
             command_pool,
             command_buffers,
             compute_shader_module,

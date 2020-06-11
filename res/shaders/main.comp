@@ -1,10 +1,77 @@
 #version 450
 
 layout (set = 0, binding = 0) uniform writeonly image2D writeImage;
-layout (set = 1, binding = 0) uniform ViewInfo {
-    uint width, height;
-} viewInfo;
+layout (set = 0, binding = 1) uniform ScreenSize {
+    vec2 screenSize;
+};
+layout (set = 1, binding = 0) uniform Camera {
+    vec2 screenSize;
+    vec3 position;
+} camera;
+
+struct Ray {
+    vec3 o; // Origin
+    vec3 d; // Direction
+};
+
+struct RaycastResult {
+    bool hit;
+    float t;
+    vec4 color;
+};
+
+struct Sphere {
+    vec3 c; // Center
+    float r; // Radius
+};
+
+RaycastResult raycast(Ray ray) {
+
+    RaycastResult result = RaycastResult(
+        false,
+        0,
+        vec4(0)
+    );
+
+    Sphere sphere = Sphere(vec3(0, 0, -2), 0.5);
+    
+    vec3 oc = ray.o - sphere.c;
+    float a = dot(ray.d, ray.d);
+    float b = 2.0 * dot(oc, ray.d);
+    float c = dot(oc, oc) - sphere.r * sphere.r;
+    float discr = b * b - 4 * a * c;
+
+    if (discr > 0) {
+        result.hit = true;
+        result.t = (-b - sqrt(discr)) / (2.0 * a);
+        result.color = vec4(0, 0, 1 - log(result.t), 1);
+    }
+
+    return result;
+}
+
+Ray genRay(vec2 screenPos) {
+    return Ray(
+        camera.position,
+        normalize(vec3(screenPos.xy, -1))
+    );
+}
 
 void main() {
-    imageStore(writeImage, ivec2(gl_GlobalInvocationID.xy), vec4(gl_GlobalInvocationID.xy / vec2(viewInfo.width, viewInfo.height), 0, 1));
+
+    float aspect = camera.screenSize.x / camera.screenSize.y;
+    vec2 screenPos = (aspect > 1) ? 
+        (gl_GlobalInvocationID.xy / camera.screenSize.x * 2.0 - vec2(1.0, 1.0 / aspect)) :
+        (gl_GlobalInvocationID.xy / camera.screenSize.y * 2.0 - vec2(aspect, 1.0));
+
+    Ray ray = genRay(screenPos);
+
+    RaycastResult result = raycast(ray);
+
+    if (result.hit) {
+        imageStore(writeImage, ivec2(gl_GlobalInvocationID.xy), result.color);
+    } else {
+        imageStore(writeImage, ivec2(gl_GlobalInvocationID.xy), vec4(screenPos, 0, 1));
+    }
+    
 }
