@@ -10,7 +10,10 @@ use ash::{
     vk,
 };
 use raw_window_handle::HasRawWindowHandle;
-use winit::{event_loop::EventLoop, window::{Window, WindowBuilder}};
+use winit::{
+    event_loop::EventLoop,
+    window::{Window, WindowBuilder},
+};
 
 const MAX_FRAMES: usize = 2;
 
@@ -68,33 +71,33 @@ fn main() {
 
 struct RenderContext {
     entry: ash::Entry,
-            instance: ash::Instance,
-            surface: vk::SurfaceKHR,
-            surface_util: extensions::khr::Surface,
-            physical_device: vk::PhysicalDevice,
-            queue_family_index: u32,
-            device: ash::Device,
-            swapchain_capabilities: vk::SurfaceCapabilitiesKHR,
-            swapchain_present_mode: vk::PresentModeKHR,
-            swapchain_extent: vk::Extent2D,
-            swapchain_util: extensions::khr::Swapchain,
-            swapchain: vk::SwapchainKHR,
-            swapchain_images: Vec<vk::Image>,
-            swapchain_subresource_range: vk::ImageSubresourceRange,
-            swapchain_image_views: Vec<vk::ImageView>,
-            compute_shader_module: vk::ShaderModule,
-            frame_descriptor_set_layout: vk::DescriptorSetLayout,
-            descriptor_pool: vk::DescriptorPool,
-            frame_descriptor_sets: Vec<vk::DescriptorSet>,
-            command_pool: vk::CommandPool,
-            command_buffers: Vec<vk::CommandBuffer>,
-            compute_pipeline_layout: vk::PipelineLayout,
-            compute_pipeline: vk::Pipeline,
-            image_available_semaphores: Vec<vk::Semaphore>,
-            compute_done_semaphores: Vec<vk::Semaphore>,
-            frame_fences: Vec<vk::Fence>,
-            queue: vk::Queue,
-            frame: usize
+    instance: ash::Instance,
+    surface: vk::SurfaceKHR,
+    surface_util: extensions::khr::Surface,
+    physical_device: vk::PhysicalDevice,
+    queue_family_index: u32,
+    device: ash::Device,
+    swapchain_capabilities: vk::SurfaceCapabilitiesKHR,
+    swapchain_present_mode: vk::PresentModeKHR,
+    swapchain_extent: vk::Extent2D,
+    swapchain_util: extensions::khr::Swapchain,
+    swapchain: vk::SwapchainKHR,
+    swapchain_images: Vec<vk::Image>,
+    swapchain_subresource_range: vk::ImageSubresourceRange,
+    swapchain_image_views: Vec<vk::ImageView>,
+    compute_shader_module: vk::ShaderModule,
+    frame_descriptor_set_layout: vk::DescriptorSetLayout,
+    descriptor_pool: vk::DescriptorPool,
+    frame_descriptor_sets: Vec<vk::DescriptorSet>,
+    command_pool: vk::CommandPool,
+    command_buffers: Vec<vk::CommandBuffer>,
+    compute_pipeline_layout: vk::PipelineLayout,
+    compute_pipeline: vk::Pipeline,
+    image_available_semaphores: Vec<vk::Semaphore>,
+    compute_done_semaphores: Vec<vk::Semaphore>,
+    frame_fences: Vec<vk::Fence>,
+    queue: vk::Queue,
+    frame: usize,
 }
 
 impl RenderContext {
@@ -592,16 +595,23 @@ impl RenderContext {
             compute_done_semaphores,
             frame_fences,
             queue,
-            frame: 0
+            frame: 0,
         }
     }
 
     fn render(&mut self) {
         unsafe {
-            if self.device.get_fence_status(self.frame_fences[self.frame]).unwrap() {
-                self.device.reset_fences(&[self.frame_fences[self.frame]]).unwrap();
+            if self
+                .device
+                .get_fence_status(self.frame_fences[self.frame])
+                .unwrap()
+            {
+                self.device
+                    .reset_fences(&[self.frame_fences[self.frame]])
+                    .unwrap();
 
-                let (image_index, _) = self.swapchain_util
+                let (image_index, _) = self
+                    .swapchain_util
                     .acquire_next_image(
                         self.swapchain,
                         std::u64::MAX,
@@ -610,7 +620,7 @@ impl RenderContext {
                     )
                     .unwrap();
 
-                    self.device
+                self.device
                     .queue_submit(
                         self.queue,
                         &[vk::SubmitInfo::builder()
@@ -619,11 +629,11 @@ impl RenderContext {
                             .command_buffers(&[self.command_buffers[image_index as usize]])
                             .signal_semaphores(&[self.compute_done_semaphores[self.frame]])
                             .build()],
-                            self.frame_fences[self.frame],
+                        self.frame_fences[self.frame],
                     )
                     .unwrap();
 
-                    self.swapchain_util
+                self.swapchain_util
                     .queue_present(
                         self.queue,
                         &vk::PresentInfoKHR::builder()
