@@ -151,6 +151,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "cstr"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "19f7a08ed4ecd7e077d4cee63937473e6f7cf57b702a9114ef41751b2cbc0f60"
+dependencies = [
+ "cstr-macros",
+ "procedural-masquerade",
+]
+
+[[package]]
+name = "cstr-macros"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd670e5ff58768ef624207fb95709ce63b8d05573fb9a05165f0eef471ea6a3a"
+dependencies = [
+ "procedural-masquerade",
+ "syn",
+]
+
+[[package]]
 name = "derivative"
 version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -534,6 +554,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "procedural-masquerade"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a1574a51c3fd37b26d2c0032b649d08a7d51d4cca9c41bbc5bf7118fa4509d0"
+
+[[package]]
 name = "quote"
 version = "0.6.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -687,6 +713,8 @@ name = "voxeldefense"
 version = "0.1.0"
 dependencies = [
  "ash",
+ "cstr",
+ "raw-window-handle",
  "winit",
 ]
 

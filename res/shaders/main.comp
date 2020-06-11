@@ -1,0 +1,6 @@
+#version 450
+
+layout (set = 0, binding = 0) uniform writeonly image2D writeImage;
+void main() {
+    imageStore(writeImage, ivec2(gl_GlobalInvocationID.xy), vec4(gl_GlobalInvocationID.xyy / 100.0, 1));
+}

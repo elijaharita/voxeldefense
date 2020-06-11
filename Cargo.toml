@@ -9,3 +9,5 @@ edition = "2018"
 [dependencies]
 winit = "0.22"
 ash = "*"
+raw-window-handle = "*"
+cstr = "*"
