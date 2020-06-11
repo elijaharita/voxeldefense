@@ -5,6 +5,7 @@ use ash::{
 };
 use raw_window_handle::RawWindowHandle;
 
+#[derive(Clone)]
 pub struct GpuManager {
     entry: ash::Entry,
     instance: ash::Instance,
@@ -12,7 +13,7 @@ pub struct GpuManager {
     surface_util: extensions::khr::Surface,
     physical_device: vk::PhysicalDevice,
     queue_family_index: u32,
-    device: ash::Device
+    device: ash::Device,
 }
 
 impl GpuManager {
@@ -152,7 +153,7 @@ impl GpuManager {
             surface_util,
             physical_device,
             queue_family_index,
-            device
+            device,
         }
     }
 
@@ -178,5 +179,13 @@ impl GpuManager {
 
     pub fn device(&self) -> &ash::Device {
         &self.device
+    }
+
+    pub fn destroy(&mut self) {
+        unsafe {
+            self.device.destroy_device(None);
+            self.surface_util.destroy_surface(self.surface, None);
+            self.instance.destroy_instance(None);
+        }
     }
 }

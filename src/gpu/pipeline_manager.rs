@@ -5,23 +5,23 @@ use ash::{
     vk,
 };
 
+#[derive(Clone)]
 pub struct PipelineManager {
+    gpu_manager: GpuManager,
+
     // Descriptor layouts
     frame_descriptor_set_layout: vk::DescriptorSetLayout,
     camera_descriptor_set_layout: vk::DescriptorSetLayout,
 
     // Pipeline
-    compute_shader_module: vk::ShaderModule,
+    shader_module: vk::ShaderModule,
     layout: vk::PipelineLayout,
     pipeline: vk::Pipeline,
 }
 
 impl PipelineManager {
-    pub fn new(gpu_manager: &GpuManager) -> Self {
-        let instance = gpu_manager.instance();
-        let physical_device = gpu_manager.physical_device();
+    pub fn new(gpu_manager: GpuManager) -> Self {
         let device = gpu_manager.device();
-        let queue_family_index = gpu_manager.queue_family_index();
 
         // Create descriptor set layouts
         let frame_descriptor_set_layout = unsafe {
@@ -56,7 +56,7 @@ impl PipelineManager {
                 .unwrap()
         };
 
-        let compute_shader_module = unsafe {
+        let shader_module = unsafe {
             use std::fs::File;
             use std::io::Read;
 
@@ -97,7 +97,7 @@ impl PipelineManager {
                             vk::PipelineShaderStageCreateInfo::builder()
                                 .name(cstr!("main"))
                                 .stage(vk::ShaderStageFlags::COMPUTE)
-                                .module(compute_shader_module)
+                                .module(shader_module)
                                 .build(),
                         )
                         .layout(layout)
@@ -108,9 +108,10 @@ impl PipelineManager {
         };
 
         Self {
+            gpu_manager,
             frame_descriptor_set_layout,
             camera_descriptor_set_layout,
-            compute_shader_module,
+            shader_module,
             layout,
             pipeline,
         }
@@ -134,5 +135,17 @@ impl PipelineManager {
 
     pub fn camera_descriptor_set_layout(&self) -> vk::DescriptorSetLayout {
         self.camera_descriptor_set_layout
+    }
+
+    pub fn destroy(&mut self) {
+        let device = self.gpu_manager.device();
+
+        unsafe {
+            device.destroy_pipeline(self.pipeline, None);
+            device.destroy_shader_module(self.shader_module, None);
+            device.destroy_pipeline_layout(self.layout, None);
+            device.destroy_descriptor_set_layout(self.camera_descriptor_set_layout, None);
+            device.destroy_descriptor_set_layout(self.frame_descriptor_set_layout, None);
+        }
     }
 }

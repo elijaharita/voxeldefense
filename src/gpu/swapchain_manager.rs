@@ -1,12 +1,15 @@
+use super::gpu_manager::GpuManager;
 use ash::{
     extensions,
     version::{DeviceV1_0, EntryV1_0, InstanceV1_0},
     vk,
 };
 use nalgebra as na;
-use super::gpu_manager::GpuManager;
 
+#[derive(Clone)]
 pub struct SwapchainManager {
+    gpu_manager: GpuManager,
+
     swapchain_util: extensions::khr::Swapchain,
     swapchain: vk::SwapchainKHR,
     capabilities: vk::SurfaceCapabilitiesKHR,
@@ -18,15 +21,14 @@ pub struct SwapchainManager {
 }
 
 impl SwapchainManager {
-    pub fn new(gpu_manager: &GpuManager, dimensions: na::Vector2<u32>) -> Self {
-
+    pub fn new(gpu_manager: GpuManager, dimensions: na::Vector2<u32>) -> Self {
         let instance = gpu_manager.instance();
         let surface = gpu_manager.surface();
         let surface_util = gpu_manager.surface_util();
         let physical_device = gpu_manager.physical_device();
         let queue_family_index = gpu_manager.queue_family_index();
         let device = gpu_manager.device();
-        
+
         // Collect swapchain information
 
         let capabilities = unsafe {
@@ -123,6 +125,7 @@ impl SwapchainManager {
             .collect();
 
         Self {
+            gpu_manager,
             swapchain_util,
             swapchain,
             capabilities,
@@ -164,5 +167,16 @@ impl SwapchainManager {
 
     pub fn image_views(&self) -> &Vec<vk::ImageView> {
         &self.image_views
+    }
+
+    pub fn destroy(&mut self) {
+        unsafe {
+            self.image_views.iter().for_each(|&image_view| {
+                self.gpu_manager
+                    .device()
+                    .destroy_image_view(image_view, None)
+            });
+            self.swapchain_util.destroy_swapchain(self.swapchain, None);
+        }
     }
 }

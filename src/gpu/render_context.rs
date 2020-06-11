@@ -27,11 +27,6 @@ pub struct RenderContext {
     device_memory: vk::DeviceMemory,
     view_buffer: vk::Buffer,
 
-    // Synchronization
-    image_available_semaphores: Vec<vk::Semaphore>,
-    compute_done_semaphores: Vec<vk::Semaphore>,
-    frame_fences: Vec<vk::Fence>,
-
     // Descriptors
     descriptor_pool: vk::DescriptorPool,
     frame_descriptor_sets: Vec<vk::DescriptorSet>,
@@ -40,6 +35,11 @@ pub struct RenderContext {
     // Command pools
     command_pool: vk::CommandPool,
     command_buffers: Vec<vk::CommandBuffer>,
+
+    // Synchronization
+    image_available_semaphores: Vec<vk::Semaphore>,
+    compute_done_semaphores: Vec<vk::Semaphore>,
+    frame_fences: Vec<vk::Fence>,
 
     // Queue
     queue: vk::Queue,
@@ -52,10 +52,10 @@ impl RenderContext {
     pub fn new(window: &Window) -> Self {
         let gpu_manager = GpuManager::new(&window.raw_window_handle());
         let swapchain_manager = SwapchainManager::new(
-            &gpu_manager,
+            gpu_manager.clone(),
             na::Vector2::new(window.inner_size().width, window.inner_size().height),
         );
-        let pipeline_manager = PipelineManager::new(&gpu_manager);
+        let pipeline_manager = PipelineManager::new(gpu_manager.clone());
 
         let instance = gpu_manager.instance();
         let physical_device = gpu_manager.physical_device();
@@ -403,5 +403,35 @@ impl RenderContext {
                 self.frame %= MAX_FRAMES;
             }
         }
+    }
+}
+
+impl Drop for RenderContext {
+    fn drop(&mut self) {
+        let device = self.gpu_manager.device();
+
+        unsafe {
+            device.device_wait_idle().unwrap();
+
+            self.frame_fences
+                .iter()
+                .for_each(|&fence| device.destroy_fence(fence, None));
+            self.compute_done_semaphores
+                .iter()
+                .for_each(|&semaphore| device.destroy_semaphore(semaphore, None));
+            self.image_available_semaphores
+                .iter()
+                .for_each(|&semaphore| device.destroy_semaphore(semaphore, None));
+
+            device.destroy_command_pool(self.command_pool, None);
+
+            device.destroy_descriptor_pool(self.descriptor_pool, None);
+
+            device.destroy_buffer(self.view_buffer, None);
+            device.free_memory(self.device_memory, None);
+        }
+        self.pipeline_manager.destroy();
+        self.swapchain_manager.destroy();
+        self.gpu_manager.destroy();
     }
 }
