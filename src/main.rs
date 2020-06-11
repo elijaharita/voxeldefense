@@ -14,6 +14,7 @@ use winit::{
     event_loop::EventLoop,
     window::{Window, WindowBuilder},
 };
+use std::time::{Duration, Instant};
 
 const MAX_FRAMES: usize = 2;
 
@@ -30,6 +31,9 @@ fn main() {
         .unwrap();
 
     let mut ctx = RenderContext::new(&window);
+
+    let mut fps = 0;
+    let mut last_fps_check = Instant::now();
 
     // Start window loop
     event_loop.run(move |event, _, control_flow| {
@@ -60,6 +64,14 @@ fn main() {
             // Main application update procedure
             Event::MainEventsCleared => {
                 ctx.render();
+                fps += 1;
+
+                let now = Instant::now();
+                if now - last_fps_check > Duration::from_secs_f32(1.0) {
+                    window.set_title(format!("{} fps", fps).as_str());
+                    fps = 0;
+                    last_fps_check = now;
+                }
             }
 
             // On close
