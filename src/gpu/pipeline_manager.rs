@@ -12,6 +12,7 @@ pub struct PipelineManager {
     // Descriptor layouts
     frame_descriptor_set_layout: vk::DescriptorSetLayout,
     camera_descriptor_set_layout: vk::DescriptorSetLayout,
+    voxel_descriptor_set_layout: vk::DescriptorSetLayout,
 
     // Pipeline
     shader_module: vk::ShaderModule,
@@ -47,6 +48,22 @@ impl PipelineManager {
                         vk::DescriptorSetLayoutBinding::builder()
                             .binding(0)
                             .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                            .descriptor_count(1)
+                            .stage_flags(vk::ShaderStageFlags::COMPUTE)
+                            .build(),
+                    ]),
+                    None,
+                )
+                .unwrap()
+        };
+
+        let voxel_descriptor_set_layout = unsafe {
+            device
+                .create_descriptor_set_layout(
+                    &vk::DescriptorSetLayoutCreateInfo::builder().bindings(&[
+                        vk::DescriptorSetLayoutBinding::builder()
+                            .binding(0)
+                            .descriptor_type(vk::DescriptorType::SAMPLER)
                             .descriptor_count(1)
                             .stage_flags(vk::ShaderStageFlags::COMPUTE)
                             .build(),
@@ -111,6 +128,7 @@ impl PipelineManager {
             gpu_manager,
             frame_descriptor_set_layout,
             camera_descriptor_set_layout,
+            voxel_descriptor_set_layout,
             shader_module,
             layout,
             pipeline,
@@ -135,6 +153,10 @@ impl PipelineManager {
 
     pub fn camera_descriptor_set_layout(&self) -> vk::DescriptorSetLayout {
         self.camera_descriptor_set_layout
+    }
+
+    pub fn voxel_descriptor_set_layout(&self) -> vk::DescriptorSetLayout {
+        self.voxel_descriptor_set_layout
     }
 
     pub fn destroy(&mut self) {

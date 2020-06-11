@@ -2,8 +2,7 @@ use super::{
     gpu_manager::GpuManager, pipeline_manager::PipelineManager, swapchain_manager::SwapchainManager,
 };
 use ash::{
-    extensions,
-    version::{DeviceV1_0, EntryV1_0, InstanceV1_0},
+    version::{DeviceV1_0, InstanceV1_0},
     vk,
 };
 use nalgebra as na;
@@ -12,6 +11,7 @@ use std::mem::size_of;
 use winit::window::Window;
 
 const MAX_FRAMES: usize = 2;
+pub const MAP_SIZE: u32 = 32;
 
 #[derive(Clone, Copy)]
 pub struct Camera {
@@ -46,11 +46,15 @@ pub struct RenderContext {
     view_buffer: vk::Buffer,
     view_buffer_offset: u64,
     view_buffer_size: u64,
+    voxel_image: vk::Image,
+    voxel_image_offset: u64,
+    voxel_image_size: u64,
 
     // Descriptors
     descriptor_pool: vk::DescriptorPool,
     frame_descriptor_sets: Vec<vk::DescriptorSet>,
     camera_descriptor_set: vk::DescriptorSet,
+    voxel_descriptor_set: vk::DescriptorSet,
 
     // Command pools
     command_pool: vk::CommandPool,
@@ -96,23 +100,58 @@ impl RenderContext {
                 .unwrap()
         };
 
+        let mut curr_offset = 0;
+
         // Find memory requirements
         let view_buffer_memory_requirements =
             unsafe { device.get_buffer_memory_requirements(view_buffer) };
+        let view_buffer_offset = curr_offset;
+        curr_offset += view_buffer_memory_requirements.size;
+
+        let voxel_image = unsafe {
+            device
+                .create_image(
+                    &vk::ImageCreateInfo::builder()
+                        .image_type(vk::ImageType::TYPE_3D)
+                        .format(vk::Format::R8G8B8A8_UNORM)
+                        .extent(
+                            vk::Extent3D::builder()
+                                .width(MAP_SIZE)
+                                .height(MAP_SIZE)
+                                .depth(MAP_SIZE)
+                                .build(),
+                        )
+                        .mip_levels(1)
+                        .array_layers(1)
+                        .samples(vk::SampleCountFlags::TYPE_1)
+                        .tiling(vk::ImageTiling::OPTIMAL)
+                        .usage(vk::ImageUsageFlags::SAMPLED)
+                        .sharing_mode(vk::SharingMode::EXCLUSIVE)
+                        .queue_family_indices(&[queue_family_index])
+                        .initial_layout(vk::ImageLayout::UNDEFINED),
+                    None,
+                )
+                .unwrap()
+        };
+
+        let voxel_image_memory_requirements =
+            unsafe { device.get_image_memory_requirements(voxel_image) };
+        let voxel_image_offset = curr_offset;
+        curr_offset += voxel_image_memory_requirements.size;
 
         // Create device memory
         let device_memory = unsafe {
             device
                 .allocate_memory(
                     &vk::MemoryAllocateInfo::builder()
-                        .allocation_size(view_buffer_memory_requirements.size)
+                        .allocation_size(curr_offset)
                         .memory_type_index(
                             instance
                                 .get_physical_device_memory_properties(physical_device)
                                 .memory_types
                                 .iter()
                                 .enumerate()
-                                .find(|&(i, memory_type)| {
+                                .find(|&(_, memory_type)| {
                                     memory_type.property_flags.contains(
                                         vk::MemoryPropertyFlags::HOST_VISIBLE
                                             | vk::MemoryPropertyFlags::HOST_COHERENT,
@@ -129,7 +168,10 @@ impl RenderContext {
         // Bind the buffers to the memory and update
         unsafe {
             device
-                .bind_buffer_memory(view_buffer, device_memory, 0)
+                .bind_buffer_memory(view_buffer, device_memory, view_buffer_offset)
+                .unwrap();
+            device
+                .bind_image_memory(voxel_image, device_memory, voxel_image_offset)
                 .unwrap();
         }
 
@@ -173,7 +215,17 @@ impl RenderContext {
                 .allocate_descriptor_sets(
                     &vk::DescriptorSetAllocateInfo::builder()
                         .descriptor_pool(descriptor_pool)
-                        .set_layouts(&vec![pipeline_manager.camera_descriptor_set_layout(); 1]),
+                        .set_layouts(&[pipeline_manager.camera_descriptor_set_layout()]),
+                )
+                .unwrap()[0]
+        };
+
+        let voxel_descriptor_set = unsafe {
+            device
+                .allocate_descriptor_sets(
+                    &vk::DescriptorSetAllocateInfo::builder()
+                        .descriptor_pool(descriptor_pool)
+                        .set_layouts(&[pipeline_manager.voxel_descriptor_set_layout()]),
                 )
                 .unwrap()[0]
         };
@@ -252,7 +304,11 @@ impl RenderContext {
                     pipeline_manager.bind_point(),
                     pipeline_manager.layout(),
                     0,
-                    &[frame_descriptor_sets[i], camera_descriptor_set],
+                    &[
+                        frame_descriptor_sets[i],
+                        camera_descriptor_set,
+                        voxel_descriptor_set,
+                    ],
                     &[],
                 );
 
@@ -339,12 +395,16 @@ impl RenderContext {
 
             device_memory,
             view_buffer,
-            view_buffer_offset: 0,
+            view_buffer_offset,
             view_buffer_size: view_buffer_memory_requirements.size,
+            voxel_image,
+            voxel_image_offset,
+            voxel_image_size: voxel_image_memory_requirements.size,
 
             descriptor_pool,
             frame_descriptor_sets,
             camera_descriptor_set,
+            voxel_descriptor_set,
 
             command_pool,
             command_buffers,
@@ -432,6 +492,23 @@ impl RenderContext {
             device.unmap_memory(self.device_memory);
         }
     }
+
+    pub fn update_voxels(&self, voxels: &[[u8; 4]; (MAP_SIZE * MAP_SIZE * MAP_SIZE) as usize]) {
+        let device = self.gpu_manager.device();
+
+        unsafe {
+            let memory = device
+                .map_memory(
+                    self.device_memory,
+                    self.voxel_image_offset,
+                    self.voxel_image_size,
+                    vk::MemoryMapFlags::empty(),
+                )
+                .unwrap();
+            *(memory as *mut [[u8; 4]; (MAP_SIZE * MAP_SIZE * MAP_SIZE) as usize]) = *voxels; 
+            device.unmap_memory(self.device_memory);
+        }
+    }
 }
 
 impl Drop for RenderContext {
@@ -455,6 +532,7 @@ impl Drop for RenderContext {
 
             device.destroy_descriptor_pool(self.descriptor_pool, None);
 
+            device.destroy_image(self.voxel_image, None);
             device.destroy_buffer(self.view_buffer, None);
             device.free_memory(self.device_memory, None);
         }

@@ -7,7 +7,7 @@ extern crate cstr;
 
 mod gpu;
 
-use gpu::render_context::{Camera, RenderContext};
+use gpu::render_context::{Camera, RenderContext, MAP_SIZE};
 use nalgebra as na;
 use std::time::{Duration, Instant};
 use winit::{event_loop::EventLoop, window::WindowBuilder};
@@ -45,6 +45,14 @@ fn main() {
     let mut player_rot = na::UnitQuaternion::identity();
     let mut player_look = na::Point2::new(0.0, 0.0);
     let mut controls = Controls::default();
+
+    let mut voxels = [[0u8, 0u8, 0u8, 255u8]; (MAP_SIZE * MAP_SIZE * MAP_SIZE) as usize];
+
+    voxels[0] = [255, 0, 0, 255];
+    voxels[(2 + 2 * MAP_SIZE + 2 * MAP_SIZE * MAP_SIZE) as usize] = [0, 255, 0, 255];
+    voxels[(4 + 4 * MAP_SIZE + 4 * MAP_SIZE * MAP_SIZE) as usize] = [0, 0, 255, 255];
+
+    ctx.update_voxels(&voxels);
 
     // Start window loop
     event_loop.run(move |event, _, control_flow| {

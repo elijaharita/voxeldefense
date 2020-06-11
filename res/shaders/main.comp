@@ -1,15 +1,13 @@
 #version 450
 
 layout (set = 0, binding = 0) uniform writeonly image2D writeImage;
-layout (set = 0, binding = 1) uniform ScreenSize {
-    vec2 screenSize;
-};
 layout (set = 1, binding = 0) uniform Camera {
     vec3 position;
     float _p4;
     mat4 rotation;
     vec2 screenSize;
 } camera;
+layout (set = 2, binding = 0) uniform sampler3D voxels;
 
 struct Ray {
     vec3 o; // Origin
