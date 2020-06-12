@@ -46,11 +46,21 @@ fn main() {
     let mut player_look = na::Point2::new(0.0, 0.0);
     let mut controls = Controls::default();
 
-    let mut voxels = [[0u8, 0u8, 0u8, 255u8]; (MAP_SIZE * MAP_SIZE * MAP_SIZE) as usize];
+    let mut voxels = [[0f32; 4]; (MAP_SIZE * MAP_SIZE * MAP_SIZE) as usize];
 
-    voxels[0] = [255, 0, 0, 255];
-    voxels[(2 + 2 * MAP_SIZE + 2 * MAP_SIZE * MAP_SIZE) as usize] = [0, 255, 0, 255];
-    voxels[(4 + 4 * MAP_SIZE + 4 * MAP_SIZE * MAP_SIZE) as usize] = [0, 0, 255, 255];
+    for x in 0..MAP_SIZE {
+        for z in 0..MAP_SIZE {
+            for y in 0..MAP_SIZE {
+                let index = (x + y * MAP_SIZE + z * MAP_SIZE * MAP_SIZE) as usize;
+                voxels[index] = [
+                    x as f32 / MAP_SIZE as f32,
+                    y as f32 / MAP_SIZE as f32,
+                    z as f32 / MAP_SIZE as f32,
+                    1.0,
+                ];
+            }
+        }
+    }
 
     ctx.update_voxels(&voxels);
 
@@ -140,7 +150,11 @@ fn main() {
                     dir.z += 1.0;
                 }
 
-                player_pos += na::UnitQuaternion::from_axis_angle(&na::Vector3::y_axis(), player_look.x) * dir * 1.0 * delta;
+                player_pos +=
+                    na::UnitQuaternion::from_axis_angle(&na::Vector3::y_axis(), player_look.x)
+                        * dir
+                        * 10.0
+                        * delta;
 
                 // Rendering
 

@@ -63,7 +63,7 @@ impl PipelineManager {
                     &vk::DescriptorSetLayoutCreateInfo::builder().bindings(&[
                         vk::DescriptorSetLayoutBinding::builder()
                             .binding(0)
-                            .descriptor_type(vk::DescriptorType::SAMPLER)
+                            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                             .descriptor_count(1)
                             .stage_flags(vk::ShaderStageFlags::COMPUTE)
                             .build(),
@@ -97,8 +97,11 @@ impl PipelineManager {
         let layout = unsafe {
             device
                 .create_pipeline_layout(
-                    &vk::PipelineLayoutCreateInfo::builder()
-                        .set_layouts(&[frame_descriptor_set_layout, camera_descriptor_set_layout]),
+                    &vk::PipelineLayoutCreateInfo::builder().set_layouts(&[
+                        frame_descriptor_set_layout,
+                        camera_descriptor_set_layout,
+                        voxel_descriptor_set_layout,
+                    ]),
                     None,
                 )
                 .unwrap()
@@ -166,6 +169,7 @@ impl PipelineManager {
             device.destroy_pipeline(self.pipeline, None);
             device.destroy_shader_module(self.shader_module, None);
             device.destroy_pipeline_layout(self.layout, None);
+            device.destroy_descriptor_set_layout(self.voxel_descriptor_set_layout, None);
             device.destroy_descriptor_set_layout(self.camera_descriptor_set_layout, None);
             device.destroy_descriptor_set_layout(self.frame_descriptor_set_layout, None);
         }

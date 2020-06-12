@@ -1,5 +1,8 @@
 #version 450
 
+#define CHUNK_SIZE 16
+#define MAX_VOXEL_TRAVERSAL 32
+
 layout (set = 0, binding = 0) uniform writeonly image2D writeImage;
 layout (set = 1, binding = 0) uniform Camera {
     vec3 position;
@@ -7,7 +10,9 @@ layout (set = 1, binding = 0) uniform Camera {
     mat4 rotation;
     vec2 screenSize;
 } camera;
-layout (set = 2, binding = 0) uniform sampler3D voxels;
+layout (set = 2, binding = 0) uniform Chunk {
+    vec4 voxels[CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE];
+};
 
 struct Ray {
     vec3 o; // Origin
@@ -24,6 +29,78 @@ struct Sphere {
     vec3 c; // Center
     float r; // Radius
 };
+
+vec4 getVoxel(ivec3 pos) {
+    if (pos.x < 0 || pos.y < 0 || pos.z < 0 || pos.x >= CHUNK_SIZE || pos.y >= CHUNK_SIZE || pos.z >= CHUNK_SIZE) {
+        return vec4(0.5, 0.5, 0.5, 0.05);
+    }
+
+    return voxels[int(pos.x) + int(pos.y) * CHUNK_SIZE + int(pos.z) * CHUNK_SIZE * CHUNK_SIZE];
+}
+
+RaycastResult rayVoxel(Ray ray) {
+
+    RaycastResult rayHit;
+    rayHit.hit = false;
+    
+    ivec3 pos = ivec3(floor(ray.o));
+    ivec3 inc = ivec3(sign(ray.d));
+    vec3 tDelta = 1.0 / abs(ray.d);
+    vec3 tMax = (pos - ray.o - min(-inc, 0)) / ray.d;
+
+    rayHit.color = vec4(0, 0, 0, 1);
+    
+    float dist = 0;
+    vec3 normal;
+
+    for (uint i = 0; i < MAX_VOXEL_TRAVERSAL; i++) {
+        // X is next
+        if (tMax.x < tMax.y && tMax.x < tMax.z) {
+            pos.x += inc.x;
+            dist = tMax.x;
+            normal = vec3(inc.x, 0, 0);
+            tMax.x += tDelta.x;
+        }
+
+        // Y is next
+        else if (tMax.y < tMax.x && tMax.y < tMax.z) {
+            pos.y += inc.y;
+            dist = tMax.y;
+            normal = vec3(0, inc.y, 0);
+            tMax.y += tDelta.y;
+        }
+
+        // Z is next
+        else if (tMax.z < tMax.x && tMax.z < tMax.y) {
+            pos.z += inc.z;
+            dist = tMax.z;
+            normal = vec3(0, 0, inc.z);
+            tMax.z += tDelta.z;
+        }
+
+        vec4 voxel = getVoxel(pos);
+
+        if (voxel.a > 0.01) {
+            if (!rayHit.hit) {
+                rayHit.t = dist;
+                //rayHit.normal = normal;
+                rayHit.hit = true;
+            }
+
+            rayHit.color.rgb += rayHit.color.a * voxel.rgb * voxel.a;
+            rayHit.color.a *= 1.0 - voxel.a;
+
+            if (rayHit.color.a <= 0.01) {
+                rayHit.color.a = 0;
+                break;
+            }
+        }
+    }
+
+    rayHit.color.a = 1.0 - rayHit.color.a;
+
+    return rayHit;
+}
 
 RaycastResult raycast(Ray ray) {
 
@@ -69,7 +146,7 @@ void main() {
 
     Ray ray = genRay(screenPos);
 
-    RaycastResult result = raycast(ray);
+    RaycastResult result = rayVoxel(ray);
 
     if (result.hit) {
         imageStore(writeImage, ivec2(gl_GlobalInvocationID.xy), result.color);
