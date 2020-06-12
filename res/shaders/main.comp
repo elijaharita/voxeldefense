@@ -1,7 +1,7 @@
 #version 450
 
 #define CHUNK_SIZE 16
-#define MAX_VOXEL_TRAVERSAL 32
+#define MAX_VOXEL_TRAVERSAL 128
 
 layout (set = 0, binding = 0) uniform writeonly image2D writeImage;
 layout (set = 1, binding = 0) uniform Camera {

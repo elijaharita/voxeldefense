@@ -158,23 +158,25 @@ fn main() {
 
                 // Rendering
 
-                ctx.update_camera(&Camera::new(
-                    player_pos,
-                    player_rot.into(),
-                    na::Point2::new(
-                        window.inner_size().width as f32,
-                        window.inner_size().height as f32,
-                    ),
-                ));
-
-                ctx.render();
-                fps += 1;
-
-                let now = Instant::now();
-                if now - last_fps_check > Duration::from_secs_f32(1.0) {
-                    window.set_title(format!("{} fps", fps).as_str());
-                    fps = 0;
-                    last_fps_check = now;
+                if ctx.render_ready() {
+                    ctx.update_camera(&Camera::new(
+                        player_pos,
+                        player_rot.into(),
+                        na::Point2::new(
+                            window.inner_size().width as f32,
+                            window.inner_size().height as f32,
+                        ),
+                    ));
+    
+                    ctx.render();
+                    fps += 1;
+    
+                    let now = Instant::now();
+                    if now - last_fps_check > Duration::from_secs_f32(1.0) {
+                        window.set_title(format!("{} fps", fps).as_str());
+                        fps = 0;
+                        last_fps_check = now;
+                    }
                 }
             }
 

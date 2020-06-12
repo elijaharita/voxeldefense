@@ -371,70 +371,77 @@ impl RenderContext {
         }
     }
 
-    pub fn render(&mut self) {
+    pub fn render_ready(&self) -> bool {
         unsafe {
-            if self
-                .gpu_manager
+            self.gpu_manager
                 .device()
                 .get_fence_status(self.frame_fences[self.frame])
                 .unwrap()
-            {
-                self.gpu_manager
-                    .device()
-                    .reset_fences(&[self.frame_fences[self.frame]])
-                    .unwrap();
+        }
+    }
 
-                let (image_index, _) = self
-                    .swapchain_manager
-                    .swapchain_util()
-                    .acquire_next_image(
-                        self.swapchain_manager.swapchain(),
-                        std::u64::MAX,
-                        self.image_available_semaphores[self.frame],
-                        vk::Fence::null(),
-                    )
-                    .unwrap();
+    pub fn render(&mut self) {
+        unsafe {
+            self.gpu_manager
+                .device()
+                .reset_fences(&[self.frame_fences[self.frame]])
+                .unwrap();
 
-                self.gpu_manager
-                    .device()
-                    .queue_submit(
-                        self.queue,
-                        &[vk::SubmitInfo::builder()
-                            .wait_semaphores(&[self.image_available_semaphores[self.frame]])
-                            .wait_dst_stage_mask(&[vk::PipelineStageFlags::COMPUTE_SHADER])
-                            .command_buffers(&[self.command_buffers[image_index as usize]])
-                            .signal_semaphores(&[self.compute_done_semaphores[self.frame]])
-                            .build()],
-                        self.frame_fences[self.frame],
-                    )
-                    .unwrap();
+            let (image_index, _) = self
+                .swapchain_manager
+                .swapchain_util()
+                .acquire_next_image(
+                    self.swapchain_manager.swapchain(),
+                    std::u64::MAX,
+                    self.image_available_semaphores[self.frame],
+                    vk::Fence::null(),
+                )
+                .unwrap();
 
-                self.swapchain_manager
-                    .swapchain_util()
-                    .queue_present(
-                        self.queue,
-                        &vk::PresentInfoKHR::builder()
-                            .wait_semaphores(&[self.compute_done_semaphores[self.frame]])
-                            .swapchains(&[self.swapchain_manager.swapchain()])
-                            .image_indices(&[image_index])
-                            .build(),
-                    )
-                    .unwrap();
+            self.gpu_manager
+                .device()
+                .queue_submit(
+                    self.queue,
+                    &[vk::SubmitInfo::builder()
+                        .wait_semaphores(&[self.image_available_semaphores[self.frame]])
+                        .wait_dst_stage_mask(&[vk::PipelineStageFlags::COMPUTE_SHADER])
+                        .command_buffers(&[self.command_buffers[image_index as usize]])
+                        .signal_semaphores(&[self.compute_done_semaphores[self.frame]])
+                        .build()],
+                    self.frame_fences[self.frame],
+                )
+                .unwrap();
 
-                // Update frame
-                self.frame += 1;
-                self.frame %= MAX_FRAMES;
-            }
+            self.swapchain_manager
+                .swapchain_util()
+                .queue_present(
+                    self.queue,
+                    &vk::PresentInfoKHR::builder()
+                        .wait_semaphores(&[self.compute_done_semaphores[self.frame]])
+                        .swapchains(&[self.swapchain_manager.swapchain()])
+                        .image_indices(&[image_index])
+                        .build(),
+                )
+                .unwrap();
+
+            // Update frame
+            self.frame += 1;
+            self.frame %= MAX_FRAMES;
         }
     }
 
     pub fn update_camera(&self, camera: &Camera) {
-        self.general_memory_manager.set_buffer_memory(0, camera, std::mem::size_of_val(camera));
+        self.general_memory_manager
+            .set_buffer_memory(0, camera, std::mem::size_of_val(camera));
     }
 
     pub fn update_voxels(&self, voxels: &[[f32; 4]; (MAP_SIZE * MAP_SIZE * MAP_SIZE) as usize]) {
         println!("{}", std::mem::size_of_val(voxels));
-        self.general_memory_manager.set_buffer_memory(1, voxels.as_ptr(), std::mem::size_of_val(voxels));
+        self.general_memory_manager.set_buffer_memory(
+            1,
+            voxels.as_ptr(),
+            std::mem::size_of_val(voxels),
+        );
     }
 }
 
