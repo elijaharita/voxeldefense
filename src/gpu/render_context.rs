@@ -12,7 +12,22 @@ use std::mem::size_of;
 use winit::window::Window;
 
 const MAX_FRAMES: usize = 2;
-pub const MAP_SIZE: u32 = 16;
+
+#[derive(Clone, Copy)]
+pub struct Chunk {
+    pub voxels: [[u8; 4]; Self::VOXEL_COUNT],
+}
+
+impl Chunk {
+    pub const SIZE: usize = 16;
+    pub const VOXEL_COUNT: usize = Self::SIZE * Self::SIZE * Self::SIZE;
+
+    pub fn new() -> Self {
+        Self {
+            voxels: [[0; 4]; Self::VOXEL_COUNT],
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 pub struct Camera {
@@ -44,8 +59,13 @@ pub struct RenderContext {
 
     // Memory
     view_buffer: vk::Buffer,
-    voxel_buffer: vk::Buffer,
-    general_memory_manager: MemoryManager,
+    chunk_input_buffer: vk::Buffer,
+    host_memory_manager: MemoryManager,
+    chunk_image: vk::Image,
+    device_memory_manager: MemoryManager,
+
+    chunk_image_view: vk::ImageView,
+    chunk_sampler: vk::Sampler,
 
     // Descriptors
     descriptor_pool: vk::DescriptorPool,
@@ -54,6 +74,7 @@ pub struct RenderContext {
     voxel_descriptor_set: vk::DescriptorSet,
 
     // Command pools
+    command_pool_tmp: vk::CommandPool,
     command_pool: vk::CommandPool,
     command_buffers: Vec<vk::CommandBuffer>,
 
@@ -89,7 +110,7 @@ impl RenderContext {
             device
                 .create_buffer(
                     &vk::BufferCreateInfo::builder()
-                        .size(size_of::<Camera>() as u64)
+                        .size(size_of::<Camera>() as vk::DeviceSize)
                         .usage(vk::BufferUsageFlags::UNIFORM_BUFFER)
                         .sharing_mode(vk::SharingMode::EXCLUSIVE)
                         .queue_family_indices(&[queue_family_index]),
@@ -98,12 +119,16 @@ impl RenderContext {
                 .unwrap()
         };
 
-        let voxel_buffer = unsafe {
+        let chunk_input_buffer = unsafe {
             device
                 .create_buffer(
                     &vk::BufferCreateInfo::builder()
-                        .size(size_of::<[f32; 4]>() as u64 * MAP_SIZE.pow(3) as u64)
-                        .usage(vk::BufferUsageFlags::UNIFORM_BUFFER)
+                        .size(size_of::<Chunk>() as vk::DeviceSize)
+                        .usage(
+                            vk::BufferUsageFlags::UNIFORM_BUFFER
+                                | vk::BufferUsageFlags::TRANSFER_SRC
+                                | vk::BufferUsageFlags::TRANSFER_DST,
+                        )
                         .sharing_mode(vk::SharingMode::EXCLUSIVE)
                         .queue_family_indices(&[queue_family_index]),
                     None,
@@ -111,12 +136,88 @@ impl RenderContext {
                 .unwrap()
         };
 
-        let general_memory_manager = MemoryManager::new(
+        let host_memory_manager = MemoryManager::new(
             gpu_manager.clone(),
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            &vec![view_buffer, voxel_buffer],
+            &vec![view_buffer, chunk_input_buffer],
             &vec![],
         );
+
+        let chunk_image = unsafe {
+            device
+                .create_image(
+                    &vk::ImageCreateInfo::builder()
+                        .image_type(vk::ImageType::TYPE_3D)
+                        .format(vk::Format::R8G8B8A8_UNORM)
+                        .extent(
+                            vk::Extent3D::builder()
+                                .width(Chunk::SIZE as u32)
+                                .height(Chunk::SIZE as u32)
+                                .depth(Chunk::SIZE as u32)
+                                .build(),
+                        )
+                        .mip_levels(1)
+                        .array_layers(1)
+                        .samples(vk::SampleCountFlags::TYPE_1)
+                        .tiling(vk::ImageTiling::OPTIMAL)
+                        .usage(vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST)
+                        .sharing_mode(vk::SharingMode::EXCLUSIVE)
+                        .queue_family_indices(&[queue_family_index])
+                        .initial_layout(vk::ImageLayout::UNDEFINED),
+                    None,
+                )
+                .unwrap()
+        };
+
+        let device_memory_manager = MemoryManager::new(
+            gpu_manager.clone(),
+            vk::MemoryPropertyFlags::DEVICE_LOCAL,
+            &vec![],
+            &vec![chunk_image],
+        );
+
+        // Chunk access objects
+        let chunk_image_view = unsafe {
+            device
+                .create_image_view(
+                    &vk::ImageViewCreateInfo::builder()
+                        .image(chunk_image)
+                        .view_type(vk::ImageViewType::TYPE_3D)
+                        .format(vk::Format::R8G8B8A8_UNORM)
+                        .components(
+                            vk::ComponentMapping::builder()
+                                .r(vk::ComponentSwizzle::IDENTITY)
+                                .g(vk::ComponentSwizzle::IDENTITY)
+                                .b(vk::ComponentSwizzle::IDENTITY)
+                                .a(vk::ComponentSwizzle::IDENTITY)
+                                .build(),
+                        )
+                        .subresource_range(
+                            vk::ImageSubresourceRange::builder()
+                                .aspect_mask(vk::ImageAspectFlags::COLOR)
+                                .base_mip_level(0)
+                                .level_count(1)
+                                .base_array_layer(0)
+                                .layer_count(1)
+                                .build(),
+                        ),
+                    None,
+                )
+                .unwrap()
+        };
+
+        let chunk_sampler = unsafe {
+            device
+                .create_sampler(
+                    &vk::SamplerCreateInfo::builder()
+                        .address_mode_u(vk::SamplerAddressMode::CLAMP_TO_BORDER)
+                        .address_mode_v(vk::SamplerAddressMode::CLAMP_TO_BORDER)
+                        .address_mode_w(vk::SamplerAddressMode::CLAMP_TO_BORDER)
+                        .unnormalized_coordinates(true),
+                    None,
+                )
+                .unwrap()
+        };
 
         // Create descriptor pool
         let descriptor_pool = unsafe {
@@ -131,6 +232,10 @@ impl RenderContext {
                                 .build(),
                             vk::DescriptorPoolSize::builder()
                                 .ty(vk::DescriptorType::UNIFORM_BUFFER)
+                                .descriptor_count(1)
+                                .build(),
+                            vk::DescriptorPoolSize::builder()
+                                .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
                                 .descriptor_count(1)
                                 .build(),
                         ]),
@@ -209,11 +314,11 @@ impl RenderContext {
                         .dst_set(voxel_descriptor_set)
                         .dst_binding(0)
                         .dst_array_element(0)
-                        .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                        .buffer_info(&[vk::DescriptorBufferInfo::builder()
-                            .buffer(voxel_buffer)
-                            .offset(0)
-                            .range(vk::WHOLE_SIZE)
+                        .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                        .image_info(&[vk::DescriptorImageInfo::builder()
+                            .image_layout(vk::ImageLayout::GENERAL)
+                            .image_view(chunk_image_view)
+                            .sampler(chunk_sampler)
                             .build()])
                         .build(),
                 ],
@@ -221,7 +326,18 @@ impl RenderContext {
             )
         }
 
-        // Create command pool
+        // Create command pools
+        let command_pool_tmp = unsafe {
+            device
+                .create_command_pool(
+                    &vk::CommandPoolCreateInfo::builder()
+                        .flags(vk::CommandPoolCreateFlags::TRANSIENT)
+                        .queue_family_index(queue_family_index),
+                    None,
+                )
+                .unwrap()
+        };
+
         let command_pool = unsafe {
             device
                 .create_command_pool(
@@ -350,14 +466,20 @@ impl RenderContext {
             pipeline_manager,
 
             view_buffer,
-            voxel_buffer,
-            general_memory_manager,
+            chunk_input_buffer,
+            host_memory_manager,
+            chunk_image,
+            device_memory_manager,
+
+            chunk_image_view,
+            chunk_sampler,
 
             descriptor_pool,
             frame_descriptor_sets,
             camera_descriptor_set,
             voxel_descriptor_set,
 
+            command_pool_tmp,
             command_pool,
             command_buffers,
 
@@ -431,17 +553,81 @@ impl RenderContext {
     }
 
     pub fn update_camera(&self, camera: &Camera) {
-        self.general_memory_manager
-            .set_buffer_memory(0, camera, std::mem::size_of_val(camera));
+        self.host_memory_manager
+            .set_buffer_memory(0, camera, size_of::<Camera>());
     }
 
-    pub fn update_voxels(&self, voxels: &[[f32; 4]; (MAP_SIZE * MAP_SIZE * MAP_SIZE) as usize]) {
-        println!("{}", std::mem::size_of_val(voxels));
-        self.general_memory_manager.set_buffer_memory(
-            1,
-            voxels.as_ptr(),
-            std::mem::size_of_val(voxels),
-        );
+    pub fn update_voxels(&self, chunk: &Chunk) {
+        let device = self.gpu_manager.device();
+
+        unsafe {
+            let cmd = device
+                .allocate_command_buffers(
+                    &vk::CommandBufferAllocateInfo::builder()
+                        .level(vk::CommandBufferLevel::PRIMARY)
+                        .command_pool(self.command_pool_tmp)
+                        .command_buffer_count(1),
+                )
+                .unwrap()[0];
+
+            device
+                .begin_command_buffer(
+                    cmd,
+                    &vk::CommandBufferBeginInfo::builder()
+                        .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
+                )
+                .unwrap();
+
+            let chunk_ptr: *const Chunk = chunk;
+            device.cmd_update_buffer(
+                cmd,
+                self.chunk_input_buffer,
+                0,
+                std::slice::from_raw_parts(chunk_ptr as *const u8, size_of::<Chunk>()),
+            );
+
+            device.cmd_copy_buffer_to_image(
+                cmd,
+                self.chunk_input_buffer,
+                self.chunk_image,
+                vk::ImageLayout::GENERAL,
+                &[vk::BufferImageCopy::builder()
+                    .buffer_offset(0)
+                    .buffer_row_length(Chunk::SIZE as u32)
+                    .buffer_image_height(Chunk::SIZE as u32)
+                    .image_subresource(
+                        vk::ImageSubresourceLayers::builder()
+                            .aspect_mask(vk::ImageAspectFlags::COLOR)
+                            .mip_level(0)
+                            .base_array_layer(0)
+                            .layer_count(1)
+                            .build(),
+                    )
+                    .image_offset(vk::Offset3D::builder().x(0).y(0).z(0).build())
+                    .image_extent(
+                        vk::Extent3D::builder()
+                            .width(Chunk::SIZE as u32)
+                            .height(Chunk::SIZE as u32)
+                            .depth(Chunk::SIZE as u32)
+                            .build(),
+                    )
+                    .build()],
+            );
+
+            device.end_command_buffer(cmd).unwrap();
+
+            device
+                .queue_submit(
+                    self.queue,
+                    &[vk::SubmitInfo::builder().command_buffers(&[cmd]).build()],
+                    vk::Fence::null(),
+                )
+                .unwrap();
+
+            device.queue_wait_idle(self.queue).unwrap();
+
+            device.free_command_buffers(self.command_pool_tmp, &[cmd]);
+        }
     }
 }
 
@@ -466,10 +652,15 @@ impl Drop for RenderContext {
 
             device.destroy_descriptor_pool(self.descriptor_pool, None);
 
-            device.destroy_buffer(self.voxel_buffer, None);
+            device.destroy_sampler(self.chunk_sampler, None);
+            device.destroy_image_view(self.chunk_image_view, None);
+
+            device.destroy_image(self.chunk_image, None);
+            device.destroy_buffer(self.chunk_input_buffer, None);
             device.destroy_buffer(self.view_buffer, None);
         }
-        self.general_memory_manager.destroy();
+        self.host_memory_manager.destroy();
+        self.device_memory_manager.destroy();
         self.pipeline_manager.destroy();
         self.swapchain_manager.destroy();
         self.gpu_manager.destroy();

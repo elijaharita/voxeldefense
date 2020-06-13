@@ -7,7 +7,7 @@ extern crate cstr;
 
 mod gpu;
 
-use gpu::render_context::{Camera, RenderContext, MAP_SIZE};
+use gpu::render_context::{Camera, RenderContext, Chunk};
 use nalgebra as na;
 use std::time::{Duration, Instant};
 use winit::{event_loop::EventLoop, window::WindowBuilder};
@@ -46,23 +46,23 @@ fn main() {
     let mut player_look = na::Point2::new(0.0, 0.0);
     let mut controls = Controls::default();
 
-    let mut voxels = [[0f32; 4]; (MAP_SIZE * MAP_SIZE * MAP_SIZE) as usize];
+    let mut chunk = Chunk::new();
 
-    for x in 0..MAP_SIZE {
-        for z in 0..MAP_SIZE {
-            for y in 0..MAP_SIZE {
-                let index = (x + y * MAP_SIZE + z * MAP_SIZE * MAP_SIZE) as usize;
-                voxels[index] = [
-                    x as f32 / MAP_SIZE as f32,
-                    y as f32 / MAP_SIZE as f32,
-                    z as f32 / MAP_SIZE as f32,
-                    1.0,
+    for x in 0..Chunk::SIZE {
+        for z in 0..Chunk::SIZE {
+            for y in 0..Chunk::SIZE {
+                let index = (x + y * Chunk::SIZE + z * Chunk::SIZE * Chunk::SIZE) as usize;
+                chunk.voxels[index] = [
+                    (x * 255 / Chunk::SIZE) as u8,
+                    (y * 255 / Chunk::SIZE) as u8,
+                    (z * 255 / Chunk::SIZE) as u8,
+                    255,
                 ];
             }
         }
     }
 
-    ctx.update_voxels(&voxels);
+    ctx.update_voxels(&chunk);
 
     // Start window loop
     event_loop.run(move |event, _, control_flow| {
