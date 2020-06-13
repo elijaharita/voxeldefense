@@ -10,7 +10,9 @@ layout (set = 1, binding = 0) uniform Camera {
     mat4 rotation;
     vec2 screenSize;
 } camera;
-layout (set = 2, binding = 0) uniform sampler3D chunk;
+layout (set = 2, binding = 0) uniform Chunk {
+    vec4 voxels[CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE];
+};
 
 struct Ray {
     vec3 o; // Origin
@@ -32,8 +34,8 @@ vec4 getVoxel(ivec3 pos) {
     if (pos.x < 0 || pos.y < 0 || pos.z < 0 || pos.x >= CHUNK_SIZE || pos.y >= CHUNK_SIZE || pos.z >= CHUNK_SIZE) {
         return vec4(0.5, 0.5, 0.5, 0.05);
     }
-    
-    return texture(chunk, pos);
+
+    return voxels[int(pos.x) + int(pos.y) * CHUNK_SIZE + int(pos.z) * CHUNK_SIZE * CHUNK_SIZE];
 }
 
 RaycastResult rayVoxel(Ray ray) {
