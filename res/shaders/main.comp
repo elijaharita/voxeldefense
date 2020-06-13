@@ -11,7 +11,7 @@ layout (set = 1, binding = 0) uniform Camera {
     vec2 screenSize;
 } camera;
 layout (set = 2, binding = 0) uniform Chunk {
-    vec4 voxels[CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE];
+    uvec4 voxels[(CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE + 4) / 4];
 };
 
 struct Ray {
@@ -35,7 +35,16 @@ vec4 getVoxel(ivec3 pos) {
         return vec4(0.5, 0.5, 0.5, 0.05);
     }
 
-    return voxels[int(pos.x) + int(pos.y) * CHUNK_SIZE + int(pos.z) * CHUNK_SIZE * CHUNK_SIZE];
+    int index = pos.x + pos.y * CHUNK_SIZE + pos.z * CHUNK_SIZE * CHUNK_SIZE;
+
+    uint rawColor = voxels[index / 4][index % 4];
+
+    return vec4(
+        float(rawColor >> 24 & 0xff) / 255.0,
+        float(rawColor >> 16 & 0xff) / 255.0,
+        float(rawColor >> 8 & 0xff) / 255.0,
+        float(rawColor & 0xff) / 255.0
+    );
 }
 
 RaycastResult rayVoxel(Ray ray) {

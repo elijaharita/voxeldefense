@@ -22,6 +22,30 @@ pub struct Camera {
     pub screen_size: na::Point2<f32>,
 }
 
+#[derive(Clone, Copy)]
+pub struct Chunk {
+    pub voxels: [u32; Chunk::VOXEL_COUNT]
+}
+
+impl Chunk {
+    pub const SIZE: usize = 16;
+    pub const VOXEL_COUNT: usize = Self::SIZE * Self::SIZE * Self::SIZE;
+
+    pub fn new() -> Self {
+        Self {
+            voxels: [0; Self::VOXEL_COUNT]
+        }
+    }
+
+    pub fn index_of(&self, pos: &na::Point3<usize>) -> usize {
+        pos.x + pos.y * Self::SIZE + pos.z * Self::SIZE * Self::SIZE
+    }
+
+    pub fn set_voxel(&mut self, pos: &na::Point3<usize>, r: u8, g: u8, b: u8, a: u8) {
+        self.voxels[self.index_of(pos)] = (r as u32) << 24 | (g as u32) << 16 | (b as u32) << 8 | (a as u32);
+    }
+}
+
 impl Camera {
     pub fn new(
         position: na::Point3<f32>,
@@ -44,14 +68,14 @@ pub struct RenderContext {
 
     // Memory
     view_buffer: vk::Buffer,
-    voxel_buffer: vk::Buffer,
+    chunk_buffer: vk::Buffer,
     general_memory_manager: MemoryManager,
 
     // Descriptors
     descriptor_pool: vk::DescriptorPool,
     frame_descriptor_sets: Vec<vk::DescriptorSet>,
     camera_descriptor_set: vk::DescriptorSet,
-    voxel_descriptor_set: vk::DescriptorSet,
+    chunk_descriptor_set: vk::DescriptorSet,
 
     // Command pools
     command_pool: vk::CommandPool,
@@ -98,7 +122,7 @@ impl RenderContext {
                 .unwrap()
         };
 
-        let voxel_buffer = unsafe {
+        let chunk_buffer = unsafe {
             device
                 .create_buffer(
                     &vk::BufferCreateInfo::builder()
@@ -114,7 +138,7 @@ impl RenderContext {
         let general_memory_manager = MemoryManager::new(
             gpu_manager.clone(),
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            &vec![view_buffer, voxel_buffer],
+            &vec![view_buffer, chunk_buffer],
             &vec![],
         );
 
@@ -163,12 +187,12 @@ impl RenderContext {
                 .unwrap()[0]
         };
 
-        let voxel_descriptor_set = unsafe {
+        let chunk_descriptor_set = unsafe {
             device
                 .allocate_descriptor_sets(
                     &vk::DescriptorSetAllocateInfo::builder()
                         .descriptor_pool(descriptor_pool)
-                        .set_layouts(&[pipeline_manager.voxel_descriptor_set_layout()]),
+                        .set_layouts(&[pipeline_manager.chunk_descriptor_set_layout()]),
                 )
                 .unwrap()[0]
         };
@@ -206,12 +230,12 @@ impl RenderContext {
                             .build()])
                         .build(),
                     vk::WriteDescriptorSet::builder()
-                        .dst_set(voxel_descriptor_set)
+                        .dst_set(chunk_descriptor_set)
                         .dst_binding(0)
                         .dst_array_element(0)
                         .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                         .buffer_info(&[vk::DescriptorBufferInfo::builder()
-                            .buffer(voxel_buffer)
+                            .buffer(chunk_buffer)
                             .offset(0)
                             .range(vk::WHOLE_SIZE)
                             .build()])
@@ -263,7 +287,7 @@ impl RenderContext {
                     &[
                         frame_descriptor_sets[i],
                         camera_descriptor_set,
-                        voxel_descriptor_set,
+                        chunk_descriptor_set,
                     ],
                     &[],
                 );
@@ -350,13 +374,13 @@ impl RenderContext {
             pipeline_manager,
 
             view_buffer,
-            voxel_buffer,
+            chunk_buffer,
             general_memory_manager,
 
             descriptor_pool,
             frame_descriptor_sets,
             camera_descriptor_set,
-            voxel_descriptor_set,
+            chunk_descriptor_set,
 
             command_pool,
             command_buffers,
@@ -432,15 +456,15 @@ impl RenderContext {
 
     pub fn update_camera(&self, camera: &Camera) {
         self.general_memory_manager
-            .set_buffer_memory(0, camera, std::mem::size_of_val(camera));
+            .set_buffer_memory(0, camera, size_of::<Camera>());
     }
 
-    pub fn update_voxels(&self, voxels: &[[f32; 4]; (MAP_SIZE * MAP_SIZE * MAP_SIZE) as usize]) {
-        println!("{}", std::mem::size_of_val(voxels));
+    pub fn update_chunk(&self, chunk: &Chunk) {
+        println!("{}", std::mem::size_of_val(chunk));
         self.general_memory_manager.set_buffer_memory(
             1,
-            voxels.as_ptr(),
-            std::mem::size_of_val(voxels),
+            chunk,
+            size_of::<Chunk>(),
         );
     }
 }
@@ -466,7 +490,7 @@ impl Drop for RenderContext {
 
             device.destroy_descriptor_pool(self.descriptor_pool, None);
 
-            device.destroy_buffer(self.voxel_buffer, None);
+            device.destroy_buffer(self.chunk_buffer, None);
             device.destroy_buffer(self.view_buffer, None);
         }
         self.general_memory_manager.destroy();

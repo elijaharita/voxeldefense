@@ -12,7 +12,7 @@ pub struct PipelineManager {
     // Descriptor layouts
     frame_descriptor_set_layout: vk::DescriptorSetLayout,
     camera_descriptor_set_layout: vk::DescriptorSetLayout,
-    voxel_descriptor_set_layout: vk::DescriptorSetLayout,
+    chunk_descriptor_set_layout: vk::DescriptorSetLayout,
 
     // Pipeline
     shader_module: vk::ShaderModule,
@@ -57,7 +57,7 @@ impl PipelineManager {
                 .unwrap()
         };
 
-        let voxel_descriptor_set_layout = unsafe {
+        let chunk_descriptor_set_layout = unsafe {
             device
                 .create_descriptor_set_layout(
                     &vk::DescriptorSetLayoutCreateInfo::builder().bindings(&[
@@ -100,7 +100,7 @@ impl PipelineManager {
                     &vk::PipelineLayoutCreateInfo::builder().set_layouts(&[
                         frame_descriptor_set_layout,
                         camera_descriptor_set_layout,
-                        voxel_descriptor_set_layout,
+                        chunk_descriptor_set_layout,
                     ]),
                     None,
                 )
@@ -131,7 +131,7 @@ impl PipelineManager {
             gpu_manager,
             frame_descriptor_set_layout,
             camera_descriptor_set_layout,
-            voxel_descriptor_set_layout,
+            chunk_descriptor_set_layout,
             shader_module,
             layout,
             pipeline,
@@ -158,8 +158,8 @@ impl PipelineManager {
         self.camera_descriptor_set_layout
     }
 
-    pub fn voxel_descriptor_set_layout(&self) -> vk::DescriptorSetLayout {
-        self.voxel_descriptor_set_layout
+    pub fn chunk_descriptor_set_layout(&self) -> vk::DescriptorSetLayout {
+        self.chunk_descriptor_set_layout
     }
 
     pub fn destroy(&mut self) {
@@ -169,7 +169,7 @@ impl PipelineManager {
             device.destroy_pipeline(self.pipeline, None);
             device.destroy_shader_module(self.shader_module, None);
             device.destroy_pipeline_layout(self.layout, None);
-            device.destroy_descriptor_set_layout(self.voxel_descriptor_set_layout, None);
+            device.destroy_descriptor_set_layout(self.chunk_descriptor_set_layout, None);
             device.destroy_descriptor_set_layout(self.camera_descriptor_set_layout, None);
             device.destroy_descriptor_set_layout(self.frame_descriptor_set_layout, None);
         }
