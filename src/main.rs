@@ -2,6 +2,7 @@ extern crate ash;
 extern crate nalgebra;
 extern crate raw_window_handle;
 extern crate winit;
+extern crate noise;
 #[macro_use]
 extern crate cstr;
 
@@ -11,6 +12,7 @@ use gpu::render_context::{Camera, RenderContext, Chunk};
 use nalgebra as na;
 use std::time::{Duration, Instant};
 use winit::{event_loop::EventLoop, window::WindowBuilder};
+use noise::{Perlin, NoiseFn};
 
 #[derive(Default)]
 struct Controls {
@@ -48,16 +50,21 @@ fn main() {
 
     let mut chunk = Chunk::new();
 
+    let perlin = Perlin::new();
+
     for x in 0..Chunk::SIZE {
         for z in 0..Chunk::SIZE {
             for y in 0..Chunk::SIZE {
-                chunk.set_voxel(
-                    &na::Point3::new(x, y, z),
-                    (x * 255 / Chunk::SIZE) as u8,
-                    (y * 255 / Chunk::SIZE) as u8,
-                    (z * 255 / Chunk::SIZE) as u8,
-                    255,
-                );
+                if (perlin.get([(x as f64) / 16.0, (z as f64) / 16.0]) * 16.0) * 0.5 + 8.0 > y as f64 {
+
+                    chunk.set_voxel(
+                        &na::Point3::new(x, y, z),
+                        (x * 255 / Chunk::SIZE) as u8,
+                        (y * 255 / Chunk::SIZE) as u8,
+                        (z * 255 / Chunk::SIZE) as u8,
+                        255,
+                    );
+                }
             }
         }
     }
