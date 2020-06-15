@@ -111,9 +111,9 @@ impl RenderContext {
             device
                 .create_buffer(
                     &vk::BufferCreateInfo::builder()
-                        // TODO: tmp fixed value of 256kib, should be dynamic in the future
-                        .size(262144) 
-                        .usage(vk::BufferUsageFlags::UNIFORM_BUFFER)
+                        // TODO: tmp fixed value of 8x raw chunk byte size, should be dynamic in the future
+                        .size((crate::CHUNK_SIZE * crate::CHUNK_SIZE * crate::CHUNK_SIZE * 4 * 8) as u64) 
+                        .usage(vk::BufferUsageFlags::STORAGE_BUFFER)
                         .sharing_mode(vk::SharingMode::EXCLUSIVE)
                         .queue_family_indices(&[queue_family_index]),
                     None,
@@ -201,7 +201,7 @@ impl RenderContext {
                     &[],
                 );
             }
-
+            
             device.update_descriptor_sets(
                 &[
                     vk::WriteDescriptorSet::builder()
@@ -219,7 +219,7 @@ impl RenderContext {
                         .dst_set(chunk_descriptor_set)
                         .dst_binding(0)
                         .dst_array_element(0)
-                        .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                        .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
                         .buffer_info(&[vk::DescriptorBufferInfo::builder()
                             .buffer(chunk_buffer)
                             .offset(0)

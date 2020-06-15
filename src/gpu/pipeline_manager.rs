@@ -63,7 +63,7 @@ impl PipelineManager {
                     &vk::DescriptorSetLayoutCreateInfo::builder().bindings(&[
                         vk::DescriptorSetLayoutBinding::builder()
                             .binding(0)
-                            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
                             .descriptor_count(1)
                             .stage_flags(vk::ShaderStageFlags::COMPUTE)
                             .build(),

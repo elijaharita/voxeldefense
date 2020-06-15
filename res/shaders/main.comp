@@ -1,6 +1,6 @@
 #version 450
 
-#define CHUNK_SIZE 16
+#define CHUNK_SIZE 32
 #define MAX_VOXEL_TRAVERSAL 64
 
 layout (set = 0, binding = 0) uniform writeonly image2D writeImage;
@@ -10,7 +10,7 @@ layout (set = 1, binding = 0) uniform Camera {
     mat4 rotation;
     vec2 screenSize;
 } camera;
-layout (set = 2, binding = 0) uniform Chunk {
+layout (set = 2, binding = 0) buffer Chunk {
     uvec4 voxels[(CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE + 4) / 4];
 };
 
