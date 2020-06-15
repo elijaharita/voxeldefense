@@ -22,10 +22,6 @@ pub struct Camera {
     pub screen_size: na::Point2<f32>,
 }
 
-pub fn pack_color(r: u8, g: u8, b: u8, a: u8) -> u32 {
-    (r as u32) << 24 | (g as u32) << 16 | (b as u32) << 8 | (a as u32)
-}
-
 impl Camera {
     pub fn new(
         position: na::Point3<f32>,

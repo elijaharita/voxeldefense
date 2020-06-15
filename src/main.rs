@@ -1,20 +1,23 @@
 extern crate ash;
 extern crate nalgebra;
+extern crate noise;
 extern crate raw_window_handle;
 extern crate winit;
-extern crate noise;
 #[macro_use]
 extern crate cstr;
 
 mod gpu;
+mod octree;
 
 use gpu::render_context::{Camera, RenderContext};
 use nalgebra as na;
+use noise::{NoiseFn, OpenSimplex};
+use octree::gen_octree;
+use palette::{Srgba};
 use std::time::{Duration, Instant};
 use winit::{event_loop::EventLoop, window::WindowBuilder};
-use noise::{OpenSimplex, NoiseFn};
 
-const CHUNK_SIZE: usize = 32;
+const CHUNK_SIZE: usize = 32; // 2^5
 
 #[derive(Default)]
 struct Controls {
@@ -50,27 +53,41 @@ fn main() {
     let mut player_look = na::Point2::new(0.0, 0.0);
     let mut controls = Controls::default();
 
-    let mut voxels = vec![0; CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE];
-
     let perlin = OpenSimplex::new();
 
+    // Generate voxels
+    let mut voxels = vec![Srgba::new(0.0, 0.0, 0.0, 0.0); CHUNK_SIZE.pow(3)];
     for x in 0..CHUNK_SIZE {
         for z in 0..CHUNK_SIZE {
             for y in 0..CHUNK_SIZE {
-                if (perlin.get([(x as f64) / 16.0, (z as f64) / 16.0]) * 16.0) * 0.5 + 8.0 > y as f64 {
-
-                    voxels[x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_SIZE] = gpu::render_context::pack_color(
-                        (x * 255 / CHUNK_SIZE) as u8,
-                        (y * 255 / CHUNK_SIZE) as u8,
-                        (z * 255 / CHUNK_SIZE) as u8,
-                        255,
+                if (perlin.get([(x as f64) / 16.0, (z as f64) / 16.0]) * 16.0) * 0.5 + 8.0
+                    > y as f64
+                {
+                    let voxel = Srgba::new(
+                        x as f32 / CHUNK_SIZE as f32,
+                        y as f32 / CHUNK_SIZE as f32,
+                        z as f32 / CHUNK_SIZE as f32,
+                        1.0,
                     );
+
+                    voxels[x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_SIZE] = voxel;
                 }
             }
         }
     }
 
-    ctx.update_chunk(voxels.as_ref());
+    let octree_data = gen_octree(
+        na::Vector3::new(CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE),
+        |pos| {
+            let color = voxels[pos.x + pos.y * CHUNK_SIZE + pos.z * CHUNK_SIZE * CHUNK_SIZE];
+            ((color.red * 255.0) as u32) << 24
+                | ((color.green * 255.0) as u32) << 16
+                | ((color.green * 255.0) as u32) << 8
+                | ((color.alpha * 255.0) as u32)
+        },
+    );
+
+    ctx.update_chunk(&octree_data);
 
     // Start window loop
     event_loop.run(move |event, _, control_flow| {
@@ -175,10 +192,10 @@ fn main() {
                             window.inner_size().height as f32,
                         ),
                     ));
-    
+
                     ctx.render();
                     fps += 1;
-    
+
                     let now = Instant::now();
                     if now - last_fps_check > Duration::from_secs_f32(1.0) {
                         window.set_title(format!("{} fps", fps).as_str());
