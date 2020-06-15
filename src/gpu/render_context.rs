@@ -12,7 +12,7 @@ use std::mem::size_of;
 use winit::window::Window;
 
 const MAX_FRAMES: usize = 2;
-pub const MAP_SIZE: u32 = 16;
+pub const CHUNK_SIZE: u32 = 16;
 
 #[derive(Clone, Copy)]
 pub struct Camera {
@@ -22,28 +22,8 @@ pub struct Camera {
     pub screen_size: na::Point2<f32>,
 }
 
-#[derive(Clone, Copy)]
-pub struct Chunk {
-    pub voxels: [u32; Chunk::VOXEL_COUNT]
-}
-
-impl Chunk {
-    pub const SIZE: usize = 16;
-    pub const VOXEL_COUNT: usize = Self::SIZE * Self::SIZE * Self::SIZE;
-
-    pub fn new() -> Self {
-        Self {
-            voxels: [0; Self::VOXEL_COUNT]
-        }
-    }
-
-    pub fn index_of(&self, pos: &na::Point3<usize>) -> usize {
-        pos.x + pos.y * Self::SIZE + pos.z * Self::SIZE * Self::SIZE
-    }
-
-    pub fn set_voxel(&mut self, pos: &na::Point3<usize>, r: u8, g: u8, b: u8, a: u8) {
-        self.voxels[self.index_of(pos)] = (r as u32) << 24 | (g as u32) << 16 | (b as u32) << 8 | (a as u32);
-    }
+pub fn pack_color(r: u8, g: u8, b: u8, a: u8) -> u32 {
+    (r as u32) << 24 | (g as u32) << 16 | (b as u32) << 8 | (a as u32)
 }
 
 impl Camera {
@@ -59,6 +39,11 @@ impl Camera {
             screen_size,
         }
     }
+}
+
+pub struct SerializedOctree {
+    size: usize,
+
 }
 
 pub struct RenderContext {
@@ -94,7 +79,7 @@ pub struct RenderContext {
 }
 
 impl RenderContext {
-    pub fn new(window: &Window) -> Self {
+    pub fn new(window: &Window, chunk_size: usize) -> Self {
         let gpu_manager = GpuManager::new(&window.raw_window_handle());
         let swapchain_manager = SwapchainManager::new(
             gpu_manager.clone(),
@@ -126,7 +111,8 @@ impl RenderContext {
             device
                 .create_buffer(
                     &vk::BufferCreateInfo::builder()
-                        .size(size_of::<[f32; 4]>() as u64 * MAP_SIZE.pow(3) as u64)
+                        // TODO: tmp fixed value of 256kib, should be dynamic in the future
+                        .size(262144) 
                         .usage(vk::BufferUsageFlags::UNIFORM_BUFFER)
                         .sharing_mode(vk::SharingMode::EXCLUSIVE)
                         .queue_family_indices(&[queue_family_index]),
@@ -459,12 +445,11 @@ impl RenderContext {
             .set_buffer_memory(0, camera, size_of::<Camera>());
     }
 
-    pub fn update_chunk(&self, chunk: &Chunk) {
-        println!("{}", std::mem::size_of_val(chunk));
+    pub fn update_chunk(&self, data: &[u32]) {
         self.general_memory_manager.set_buffer_memory(
             1,
-            chunk,
-            size_of::<Chunk>(),
+            data.as_ptr(),
+            std::mem::size_of_val(data),
         );
     }
 }

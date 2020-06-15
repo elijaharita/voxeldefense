@@ -53,6 +53,15 @@ RaycastResult rayVoxel(Ray ray) {
     rayHit.hit = false;
     
     ivec3 pos = ivec3(floor(ray.o));
+
+    vec4 startVoxel = getVoxel(pos);
+    if (startVoxel.a > 0.01) {
+        rayHit.hit = true;
+        rayHit.color = startVoxel;
+        rayHit.t = 0;
+        return rayHit;
+    }
+    
     ivec3 inc = ivec3(sign(ray.d));
     vec3 tDelta = 1.0 / abs(ray.d);
     vec3 tMax = (pos - ray.o - min(-inc, 0)) / ray.d;

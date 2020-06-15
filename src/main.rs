@@ -8,11 +8,13 @@ extern crate cstr;
 
 mod gpu;
 
-use gpu::render_context::{Camera, RenderContext, Chunk};
+use gpu::render_context::{Camera, RenderContext};
 use nalgebra as na;
 use std::time::{Duration, Instant};
 use winit::{event_loop::EventLoop, window::WindowBuilder};
 use noise::{Perlin, NoiseFn};
+
+const CHUNK_SIZE: usize = 16;
 
 #[derive(Default)]
 struct Controls {
@@ -36,7 +38,7 @@ fn main() {
         .build(&event_loop)
         .unwrap();
 
-    let mut ctx = RenderContext::new(&window);
+    let mut ctx = RenderContext::new(&window, CHUNK_SIZE);
 
     let mut fps = 0;
     let mut last_fps_check = Instant::now();
@@ -48,20 +50,19 @@ fn main() {
     let mut player_look = na::Point2::new(0.0, 0.0);
     let mut controls = Controls::default();
 
-    let mut chunk = Chunk::new();
+    let mut voxels = [0u32; CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE];
 
     let perlin = Perlin::new();
 
-    for x in 0..Chunk::SIZE {
-        for z in 0..Chunk::SIZE {
-            for y in 0..Chunk::SIZE {
+    for x in 0..CHUNK_SIZE {
+        for z in 0..CHUNK_SIZE {
+            for y in 0..CHUNK_SIZE {
                 if (perlin.get([(x as f64) / 16.0, (z as f64) / 16.0]) * 16.0) * 0.5 + 8.0 > y as f64 {
 
-                    chunk.set_voxel(
-                        &na::Point3::new(x, y, z),
-                        (x * 255 / Chunk::SIZE) as u8,
-                        (y * 255 / Chunk::SIZE) as u8,
-                        (z * 255 / Chunk::SIZE) as u8,
+                    voxels[x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_SIZE] = gpu::render_context::pack_color(
+                        (x * 255 / CHUNK_SIZE) as u8,
+                        (y * 255 / CHUNK_SIZE) as u8,
+                        (z * 255 / CHUNK_SIZE) as u8,
                         255,
                     );
                 }
@@ -69,7 +70,7 @@ fn main() {
         }
     }
 
-    ctx.update_chunk(&chunk);
+    ctx.update_chunk(&voxels);
 
     // Start window loop
     event_loop.run(move |event, _, control_flow| {
