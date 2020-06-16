@@ -12,7 +12,7 @@ mod octree;
 use gpu::render_context::{Camera, RenderContext};
 use nalgebra as na;
 use noise::{NoiseFn, OpenSimplex};
-use octree::gen_octree;
+use octree::Octree;
 use palette::{Srgba};
 use std::time::{Duration, Instant};
 use winit::{event_loop::EventLoop, window::WindowBuilder};
